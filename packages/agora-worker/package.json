@@ -12,7 +12,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@quarry-systems/agora-core": "workspace:*"
+    "@aws-sdk/client-secrets-manager": "^3.700.0",
+    "@quarry-systems/agora-core": "workspace:*",
+    "@quarry-systems/agora-storage-local": "workspace:*",
+    "@quarry-systems/agora-storage-s3": "workspace:*"
   },
   "devDependencies": {}
 }
