@@ -42,13 +42,20 @@ function emptyIndex(): IndexFile {
 export class LocalStorageProvider implements StorageProvider {
   readonly name = 'local-fs';
 
+  /**
+   * Per-indexPath write queue. Concurrent `put()` calls that target the same
+   * `(namespace, type, name)` chain their read-modify-write blocks through
+   * a promise tail so the _index.json mutation is serialized.
+   */
+  private writeLocks = new Map<string, Promise<void>>();
+
   constructor(private opts: LocalStorageProviderOpts) {}
 
   async put(
     uri: string,
     contents: Uint8Array,
   ): Promise<{ contentHash: string }> {
-    const parsed = parseAgoraUri(uri);
+    const parsed = this.parseSafe(uri);
     const contentHash = computeContentHash(contents);
     if (parsed.contentHash && parsed.contentHash !== contentHash) {
       throw new IntegrityMismatchError(parsed.contentHash, contentHash);
@@ -59,27 +66,44 @@ export class LocalStorageProvider implements StorageProvider {
     await writeFile(blobPath, contents);
 
     const indexPath = this.indexPath(parsed);
-    const index = await this.readIndex(indexPath);
-    if (!index.entries.some((e) => e.contentHash === contentHash)) {
-      index.entries.push({
-        contentHash,
-        registeredAt: new Date().toISOString(),
-      });
-      await writeFile(indexPath, JSON.stringify(index, null, 2));
-    }
+    await this.withIndexLock(indexPath, async () => {
+      const index = await this.readIndex(indexPath);
+      if (!index.entries.some((e) => e.contentHash === contentHash)) {
+        index.entries.push({
+          contentHash,
+          registeredAt: new Date().toISOString(),
+        });
+        await writeFile(indexPath, JSON.stringify(index, null, 2));
+      }
+    });
 
     return { contentHash };
   }
 
   async get(uri: string): Promise<Uint8Array> {
-    const parsed = parseAgoraUri(uri);
+    const parsed = this.parseSafe(uri);
     if (!parsed.contentHash) {
       throw new Error(
         `LocalStorageProvider.get requires a pinned URI with contentHash: ${uri}`,
       );
     }
     const blobPath = this.blobPath(parsed, parsed.contentHash);
-    const bytes = await readFile(blobPath);
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(blobPath);
+    } catch (err) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as NodeJS.ErrnoException).code === 'ENOENT'
+      ) {
+        throw new Error(
+          `LocalStorageProvider: blob not found for URI: ${uri}`,
+        );
+      }
+      throw err;
+    }
     const actual = computeContentHash(bytes);
     if (actual !== parsed.contentHash) {
       throw new IntegrityMismatchError(parsed.contentHash, actual);
@@ -94,7 +118,7 @@ export class LocalStorageProvider implements StorageProvider {
   ): Promise<
     { uri: string; contentHash: string; registeredAt: string } | null
   > {
-    const parsed = parseAgoraUri(uri);
+    const parsed = this.parseSafe(uri);
     const index = await this.readIndex(this.indexPath(parsed));
     if (index.entries.length === 0) return null;
     let latest = index.entries[0]!;
@@ -118,7 +142,7 @@ export class LocalStorageProvider implements StorageProvider {
   ): Promise<
     Array<{ uri: string; contentHash: string; registeredAt: string }>
   > {
-    const parsed = parseAgoraUri(uri);
+    const parsed = this.parseSafe(uri);
     const index = await this.readIndex(this.indexPath(parsed));
     const sorted = [...index.entries].sort((a, b) =>
       a.registeredAt < b.registeredAt
@@ -137,6 +161,57 @@ export class LocalStorageProvider implements StorageProvider {
       contentHash: e.contentHash,
       registeredAt: e.registeredAt,
     }));
+  }
+
+  /**
+   * Parse the URI through agora-core and then defend against path-traversal
+   * segments. The upstream parser rejects empty / slash-containing segments
+   * but accepts "." and "..", either of which would let a caller escape
+   * rootDir when joined into a filesystem path.
+   */
+  private parseSafe(uri: string): AgoraUriParts {
+    const parsed = parseAgoraUri(uri);
+    this.assertSafeSegment(parsed.namespace, 'namespace');
+    this.assertSafeSegment(parsed.type, 'type');
+    this.assertSafeSegment(parsed.name, 'name');
+    if (parsed.contentHash !== undefined) {
+      this.assertSafeSegment(parsed.contentHash, 'contentHash');
+    }
+    return parsed;
+  }
+
+  private assertSafeSegment(segment: string, label: string): void {
+    if (segment === '.' || segment === '..' || segment.includes('..')) {
+      throw new Error(
+        `LocalStorageProvider: unsafe ${label} segment: "${segment}"`,
+      );
+    }
+  }
+
+  /**
+   * Serialize all `fn` calls that share the same `indexPath`. Each call
+   * appends its work to a per-path promise tail; release flips the tail
+   * forward only when `fn` settles.
+   */
+  private async withIndexLock<T>(
+    indexPath: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const prev = this.writeLocks.get(indexPath) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((r) => {
+      release = r;
+    });
+    this.writeLocks.set(
+      indexPath,
+      prev.then(() => next),
+    );
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
   }
 
   private blobPath(parts: AgoraUriParts, contentHash: string): string {
