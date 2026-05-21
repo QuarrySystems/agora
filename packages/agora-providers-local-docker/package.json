@@ -12,7 +12,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@quarry-systems/agora-core": "workspace:*"
+    "@quarry-systems/agora-core": "workspace:*",
+    "dockerode": "^4.0.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/dockerode": "^3.3.30"
+  }
 }
