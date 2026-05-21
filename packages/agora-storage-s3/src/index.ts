@@ -30,6 +30,7 @@ import {
   parseAgoraUri,
   buildAgoraUri,
   computeContentHash,
+  ConflictError,
   IntegrityMismatchError,
   type StorageProvider,
   type AgoraUriParts,
@@ -247,6 +248,23 @@ export class S3StorageProvider implements StorageProvider {
   }
 
   private async readIndex(parts: AgoraUriParts): Promise<IndexFile> {
+    const { index } = await this.readIndexWithEtag(parts);
+    return index;
+  }
+
+  /**
+   * Read the index alongside its ETag. The ETag is required by
+   * `updateIndex` to drive S3 conditional-write optimistic concurrency:
+   * subsequent index puts pass `IfMatch: <etag>` so two concurrent
+   * `put()` calls on the same (namespace, type, name) cannot silently
+   * stomp each other.
+   *
+   * When the index does not yet exist, `etag` is `undefined` and the
+   * caller is expected to write with `IfNoneMatch: '*'`.
+   */
+  private async readIndexWithEtag(
+    parts: AgoraUriParts,
+  ): Promise<{ index: IndexFile; etag: string | undefined }> {
     try {
       const resp = await this.s3.send(
         new GetObjectCommand({
@@ -257,35 +275,82 @@ export class S3StorageProvider implements StorageProvider {
       const bytes = await streamToUint8Array(resp.Body);
       const text = new TextDecoder().decode(bytes);
       const parsed = JSON.parse(text) as IndexFile;
-      if (!parsed || !Array.isArray(parsed.entries)) return emptyIndex();
-      return parsed;
+      const etag = (resp as { ETag?: string }).ETag;
+      if (!parsed || !Array.isArray(parsed.entries)) {
+        return { index: emptyIndex(), etag };
+      }
+      return { index: parsed, etag };
     } catch (err) {
-      if (isNotFound(err)) return emptyIndex();
+      if (isNotFound(err)) return { index: emptyIndex(), etag: undefined };
       throw err;
     }
   }
 
+  /**
+   * Append `contentHash` to the per-(namespace, type, name) index file
+   * using S3 conditional writes so concurrent writers cannot last-writer-
+   * wins each other.
+   *
+   * Loop:
+   *   1. GET the index, capturing ETag.
+   *   2. If the contentHash is already present, return (dedup).
+   *   3. PUT the updated index with `IfMatch: <etag>` (or
+   *      `IfNoneMatch: '*'` when creating fresh).
+   *   4. On 412 PreconditionFailed, another writer landed first —
+   *      retry the whole read-modify-write with exponential backoff.
+   *
+   * After {@link MAX_INDEX_UPDATE_ATTEMPTS} attempts we surface a
+   * {@link ConflictError} rather than corrupting the index.
+   *
+   * S3 has supported `IfMatch` on PutObject since November 2024. Against
+   * older S3-compatible endpoints that don't honor it, the precondition
+   * is ignored server-side and we degrade to the prior last-writer-wins
+   * behavior — not silently broken, just unguarded. LocalStack honors it
+   * and the smoke test covers the happy path.
+   */
   private async updateIndex(
     parts: AgoraUriParts,
     contentHash: string,
   ): Promise<void> {
-    const index = await this.readIndex(parts);
-    if (index.entries.some((e) => e.contentHash === contentHash)) {
-      // Already registered — content-addressed dedup. Nothing to do.
-      return;
+    for (let attempt = 0; attempt < MAX_INDEX_UPDATE_ATTEMPTS; attempt++) {
+      const { index, etag } = await this.readIndexWithEtag(parts);
+      if (index.entries.some((e) => e.contentHash === contentHash)) {
+        // Already registered — content-addressed dedup. Nothing to do.
+        return;
+      }
+      index.entries.push({
+        contentHash,
+        registeredAt: new Date().toISOString(),
+      });
+      const body = new TextEncoder().encode(JSON.stringify(index, null, 2));
+      try {
+        await this.s3.send(
+          new PutObjectCommand({
+            Bucket: this.opts.bucket,
+            Key: this.indexKey(parts),
+            Body: body,
+            ContentType: 'application/json',
+            ...(etag ? { IfMatch: etag } : { IfNoneMatch: '*' }),
+          }),
+        );
+        return;
+      } catch (err) {
+        if (!isPreconditionFailed(err)) throw err;
+        // 412: another writer landed first. Back off and retry the
+        // entire read-modify-write loop with the freshly observed etag.
+        const delayMs = INDEX_UPDATE_BASE_BACKOFF_MS * (1 << attempt);
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
     }
-    index.entries.push({
-      contentHash,
-      registeredAt: new Date().toISOString(),
-    });
-    const body = new TextEncoder().encode(JSON.stringify(index, null, 2));
-    await this.s3.send(
-      new PutObjectCommand({
-        Bucket: this.opts.bucket,
-        Key: this.indexKey(parts),
-        Body: body,
-        ContentType: 'application/json',
-      }),
+    throw new ConflictError(
+      `index update failed after ${MAX_INDEX_UPDATE_ATTEMPTS} retries: ` +
+        `${parts.namespace}/${parts.type}/${parts.name}`,
     );
   }
 }
+
+/** Max attempts for the optimistic-concurrency index update loop. */
+const MAX_INDEX_UPDATE_ATTEMPTS = 5;
+
+/** Base delay for exponential backoff between index-update retries. */
+const INDEX_UPDATE_BASE_BACKOFF_MS = 50;
