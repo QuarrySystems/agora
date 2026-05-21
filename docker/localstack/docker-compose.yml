@@ -1,0 +1,24 @@
+# LocalStack — S3-only sandbox used by `agora-storage-s3` integration tests.
+#
+# Bring up: docker compose -f docker/localstack/docker-compose.yml up -d
+# Tear down: docker compose -f docker/localstack/docker-compose.yml down
+#
+# The image tag is pinned (no :latest) so CI is reproducible. Bump
+# deliberately when upgrading the LocalStack major/minor.
+services:
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: agora-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: "s3"
+      DEFAULT_REGION: "us-east-1"
+      # Persist nothing — these are throwaway sandboxes.
+      DEBUG: "0"
+      EAGER_SERVICE_LOADING: "1"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
