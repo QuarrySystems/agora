@@ -12,6 +12,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@aws-sdk/credential-providers": "^3.600.0",
     "@quarry-systems/agora-core": "workspace:*"
   },
   "devDependencies": {}
