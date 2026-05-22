@@ -1,0 +1,31 @@
+# .dockerignore is resolved relative to the build context (the repo root).
+# Keep the context lean so `docker build` doesn't ship hundreds of MB of
+# node_modules and dist trees across the wire.
+
+**/node_modules
+**/dist
+**/.turbo
+**/.next
+**/.tsbuildinfo
+
+# Tests/docs are not needed inside the worker image.
+**/test
+**/tests
+**/__tests__
+docs
+.github
+.git
+.gitignore
+.gitattributes
+
+# IDE + OS noise.
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Local-only state.
+.claude
+CHANGELOG.md
+README.md
+LICENSE
