@@ -61,6 +61,7 @@ import { execSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 probeDocker();
 const storageRoot = useTempStorageRoot('e2e-git-storage');
@@ -191,7 +192,7 @@ describe('E2E: §6.5 — file-editing dispatch produces git push to a stub remot
       // `values:` (and not `secrets:`) is correct: a `file://` URL or a
       // `git://localhost:<port>/<name>` URL is not credential-shaped, and
       // §7.1's scanner does not flag it.
-      const remoteUrl = `file://${bareRepo.replace(/\\/g, '/')}`;
+      const remoteUrl = pathToFileURL(bareRepo).href;
       await client.env.register({
         name: 'git-env',
         values: { REMOTE_URL: remoteUrl },
