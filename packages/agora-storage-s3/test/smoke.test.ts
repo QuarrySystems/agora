@@ -268,3 +268,61 @@ describe('S3StorageProvider index conditional writes', () => {
     expect(findIndexPuts(fake).length).toBe(0);
   });
 });
+
+// --------------------------------------------------------------------------
+// Dispatch-record (reserved `dispatches/` prefix) support.
+//
+// The retention layer in agora-client writes dispatch records to URIs like
+// `agora://<ns>/dispatches/<id>/record.json`. The general `parseAgoraUri`
+// rejects `type === 'dispatches'`, but the storage provider uses the
+// permissive `parseStorageUri` so these writes go through. Dispatch records
+// are NOT content-addressed: each URI maps directly to a single S3 object
+// with no `_index.json` and no hash-suffixed `.blob` key.
+// --------------------------------------------------------------------------
+
+describe('S3StorageProvider dispatch-record prefix', () => {
+  it('put + get round-trips bytes under the reserved dispatches prefix', async () => {
+    const fake = new FakeS3();
+    const sp = new S3StorageProvider({
+      bucket: 'b',
+      client: fake as unknown as S3Client,
+    });
+    const uri = 'agora://ns/dispatches/d-123/record.json';
+    const payload = new TextEncoder().encode('{"hello":"dispatch"}');
+    const { contentHash } = await sp.put(uri, payload);
+    expect(contentHash).toMatch(/^sha256:/);
+
+    const retrieved = await sp.get(uri);
+    expect(new TextDecoder().decode(retrieved)).toBe('{"hello":"dispatch"}');
+
+    // No _index.json mutation for dispatch records — there's no per-name
+    // version registry, the URI itself is the canonical address.
+    expect(findIndexPuts(fake).length).toBe(0);
+  });
+
+  it('put + get round-trips bytes under a nested dispatches suffix', async () => {
+    const fake = new FakeS3();
+    const sp = new S3StorageProvider({
+      bucket: 'b',
+      client: fake as unknown as S3Client,
+    });
+    const uri = 'agora://ns/dispatches/d-abc/events/0001.json';
+    const payload = new TextEncoder().encode('{"event":1}');
+    await sp.put(uri, payload);
+    const retrieved = await sp.get(uri);
+    expect(new TextDecoder().decode(retrieved)).toBe('{"event":1}');
+  });
+
+  it('overwriting a dispatch record replaces the prior bytes (NOT content-addressed)', async () => {
+    const fake = new FakeS3();
+    const sp = new S3StorageProvider({
+      bucket: 'b',
+      client: fake as unknown as S3Client,
+    });
+    const uri = 'agora://ns/dispatches/d-overwrite/record.json';
+    await sp.put(uri, new TextEncoder().encode('first'));
+    await sp.put(uri, new TextEncoder().encode('second'));
+    const retrieved = await sp.get(uri);
+    expect(new TextDecoder().decode(retrieved)).toBe('second');
+  });
+});

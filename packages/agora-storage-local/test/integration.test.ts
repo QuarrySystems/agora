@@ -133,4 +133,52 @@ describe('LocalStorageProvider', () => {
     );
     expect(latest).toBeNull();
   });
+
+  // ── Dispatch-record prefix (reserved `dispatches/`) support ─────────────
+  //
+  // The retention layer in agora-client writes dispatch records to URIs
+  // like `agora://<ns>/dispatches/<id>/record.json` via the dedicated
+  // `buildDispatchRecordUri` helper. The general `parseAgoraUri` rejects
+  // `type === 'dispatches'`, but the storage provider uses the permissive
+  // `parseStorageUri` so these writes go through.
+
+  describe('dispatch-record prefix', () => {
+    it('put + get round-trips bytes under the reserved dispatches prefix', async () => {
+      const sp = new LocalStorageProvider({ rootDir });
+      const uri = 'agora://test/dispatches/d-123/record.json';
+      const payload = new TextEncoder().encode('{"hello":"dispatch"}');
+      const { contentHash } = await sp.put(uri, payload);
+      expect(contentHash).toMatch(/^sha256:/);
+
+      const retrieved = await sp.get(uri);
+      expect(new TextDecoder().decode(retrieved)).toBe('{"hello":"dispatch"}');
+    });
+
+    it('put + get round-trips bytes under a nested dispatches suffix', async () => {
+      const sp = new LocalStorageProvider({ rootDir });
+      const uri = 'agora://test/dispatches/d-abc/events/0001.json';
+      const payload = new TextEncoder().encode('{"event":1}');
+      await sp.put(uri, payload);
+      const retrieved = await sp.get(uri);
+      expect(new TextDecoder().decode(retrieved)).toBe('{"event":1}');
+    });
+
+    it('get on a missing dispatch record surfaces a descriptive not-found error', async () => {
+      const sp = new LocalStorageProvider({ rootDir });
+      const uri = 'agora://test/dispatches/d-missing/record.json';
+      await expect(sp.get(uri)).rejects.toThrow(/not found/i);
+    });
+
+    it('overwriting a dispatch record replaces the prior bytes (NOT content-addressed)', async () => {
+      // Dispatch records live at a known URI — they are NOT content-addressed,
+      // so writing twice to the same URI overwrites (unlike blob puts, which
+      // would just register a new content hash alongside the first).
+      const sp = new LocalStorageProvider({ rootDir });
+      const uri = 'agora://test/dispatches/d-overwrite/record.json';
+      await sp.put(uri, new TextEncoder().encode('first'));
+      await sp.put(uri, new TextEncoder().encode('second'));
+      const retrieved = await sp.get(uri);
+      expect(new TextDecoder().decode(retrieved)).toBe('second');
+    });
+  });
 });

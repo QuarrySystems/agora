@@ -17,6 +17,33 @@ export interface AgoraUriParts {
   contentHash?: string;
 }
 
+/**
+ * Parsed components of a dispatch-record URI (under the reserved
+ * `dispatches/` prefix per §7.8). Distinct from {@link AgoraUriParts}
+ * because dispatch records are NOT content-addressed — the URI itself
+ * is the canonical address, there is no `contentHash`, and the suffix
+ * may itself contain `/` to address nested record components.
+ */
+export interface DispatchRecordUriParts {
+  namespace: string;
+  dispatchId: string;
+  /**
+   * The path under the dispatch root. Absent when the URI addresses the
+   * dispatch root itself. May contain `/` for nested addressing
+   * (e.g. `"events/0001.json"`).
+   */
+  suffix?: string;
+}
+
+/**
+ * Discriminated union returned by {@link parseStorageUri}. Storage
+ * providers branch on `kind` to decide between content-addressed blob
+ * handling and dispatch-record handling.
+ */
+export type StorageUriParts =
+  | ({ kind: 'blob' } & AgoraUriParts)
+  | ({ kind: 'dispatch-record' } & DispatchRecordUriParts);
+
 const SCHEME = 'agora://';
 const RESERVED_TYPES = new Set(['dispatches']);
 
@@ -85,6 +112,84 @@ export function buildAgoraUri(parts: AgoraUriParts): string {
     return `${base}/${parts.contentHash}`;
   }
   return base;
+}
+
+/**
+ * Permissive parser used by storage providers. Accepts BOTH the normal
+ * blob shape (3 or 4 segments, non-reserved type) AND the reserved
+ * `dispatches/` shape (`agora://<ns>/dispatches/<id>[/<suffix>]` with
+ * arbitrary `/`-bearing suffix).
+ *
+ * The general {@link parseAgoraUri} intentionally rejects `type ===
+ * 'dispatches'` as a client-side write-safety guard (preventing
+ * `buildAgoraUri({type: 'dispatches'})` from accidentally colliding with
+ * dispatch records). Storage providers are the layer that legitimately
+ * reads and writes dispatch records, and use this permissive parser so
+ * that `LocalStorageProvider.put(dispatchUri, bytes)` works without
+ * weakening the general-parser guarantee.
+ *
+ * @throws Error if the URI is malformed (missing scheme, empty segments,
+ *   wrong segment count for the inferred shape, or a reserved type other
+ *   than `dispatches`).
+ */
+export function parseStorageUri(uri: string): StorageUriParts {
+  if (typeof uri !== 'string' || !uri.startsWith(SCHEME)) {
+    throw new Error(`agora URI: must start with "${SCHEME}", got: ${uri}`);
+  }
+  const rest = uri.slice(SCHEME.length);
+  const segments = rest.split('/');
+
+  if (segments.length < 3) {
+    throw new Error(
+      `agora URI: expected at least 3 segments after scheme, got ${segments.length}: ${uri}`,
+    );
+  }
+
+  const [namespace, type] = segments;
+  assertSegment(namespace, 'namespace');
+  assertSegment(type, 'type');
+
+  if (type === 'dispatches') {
+    // Dispatch-record shape: agora://<ns>/dispatches/<id>[/<suffix...>]
+    const dispatchId = segments[2]!;
+    assertSegment(dispatchId, 'dispatchId');
+    if (segments.length === 3) {
+      return { kind: 'dispatch-record', namespace, dispatchId };
+    }
+    // Join remaining segments back into a slash-bearing suffix. Each
+    // segment must be non-empty so we reject `//` runs in the suffix.
+    const suffixSegments = segments.slice(3);
+    for (const s of suffixSegments) {
+      if (s.length === 0) {
+        throw new Error(
+          `agora URI: empty segment in dispatches suffix: ${uri}`,
+        );
+      }
+    }
+    return {
+      kind: 'dispatch-record',
+      namespace,
+      dispatchId,
+      suffix: suffixSegments.join('/'),
+    };
+  }
+
+  // Normal blob shape: agora://<ns>/<type>/<name>[/<contentHash>]
+  if (segments.length > 4) {
+    throw new Error(
+      `agora URI: expected 3 or 4 segments after scheme for type "${type}", got ${segments.length}: ${uri}`,
+    );
+  }
+  const name = segments[2]!;
+  const contentHash = segments[3];
+  assertSegment(name, 'name');
+  // No reserved-type check here — the WHOLE POINT of parseStorageUri is to
+  // accept dispatches (handled above) without weakening the general parser.
+  if (contentHash !== undefined) {
+    assertSegment(contentHash, 'contentHash');
+    return { kind: 'blob', namespace, type, name, contentHash };
+  }
+  return { kind: 'blob', namespace, type, name };
 }
 
 /**

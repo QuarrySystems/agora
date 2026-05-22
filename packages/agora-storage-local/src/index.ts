@@ -9,17 +9,30 @@
 // Per-(namespace, type, name) registry of registered blobs lives at
 //   <root>/<namespace>/<type>/<name>/_index.json
 // and is the source of truth for `resolveLatest` / `list`.
+//
+// Dispatch records (URIs under the reserved `dispatches/` prefix, per §7.8
+// and `buildDispatchRecordUri`) take a separate code path: they are NOT
+// content-addressed, so each URI maps directly to a single on-disk file with
+// no `_index.json` and no hash-suffixed `.blob` filename:
+//
+//   agora://<namespace>/dispatches/<dispatchId>[/<suffix>]
+//     -> <root>/<namespace>/dispatches/<dispatchId>[/<suffix>]
+//
+// `parseStorageUri` from agora-core is the permissive parser that accepts
+// both shapes. The general `parseAgoraUri` still rejects `dispatches` as a
+// client-side write-safety guard.
 
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, sep } from 'node:path';
 
 import {
-  parseAgoraUri,
+  parseStorageUri,
   buildAgoraUri,
   computeContentHash,
   IntegrityMismatchError,
   type StorageProvider,
   type AgoraUriParts,
+  type StorageUriParts,
 } from '@quarry-systems/agora-core';
 
 export interface LocalStorageProviderOpts {
@@ -56,6 +69,86 @@ export class LocalStorageProvider implements StorageProvider {
     contents: Uint8Array,
   ): Promise<{ contentHash: string }> {
     const parsed = this.parseSafe(uri);
+    if (parsed.kind === 'dispatch-record') {
+      return this.putDispatchRecord(parsed, contents);
+    }
+    return this.putBlob(parsed, contents);
+  }
+
+  async get(uri: string): Promise<Uint8Array> {
+    const parsed = this.parseSafe(uri);
+    if (parsed.kind === 'dispatch-record') {
+      return this.getDispatchRecord(parsed, uri);
+    }
+    return this.getBlob(parsed, uri);
+  }
+
+  async resolveLatest(
+    uri: string,
+  ): Promise<
+    { uri: string; contentHash: string; registeredAt: string } | null
+  > {
+    const parsed = this.parseSafe(uri);
+    if (parsed.kind === 'dispatch-record') {
+      throw new Error(
+        `LocalStorageProvider.resolveLatest is not supported for dispatch-record URIs: ${uri}`,
+      );
+    }
+    const index = await this.readIndex(this.indexPath(parsed));
+    if (index.entries.length === 0) return null;
+    let latest = index.entries[0]!;
+    for (const e of index.entries) {
+      if (e.registeredAt > latest.registeredAt) latest = e;
+    }
+    return {
+      uri: buildAgoraUri({
+        namespace: parsed.namespace,
+        type: parsed.type,
+        name: parsed.name,
+        contentHash: latest.contentHash,
+      }),
+      contentHash: latest.contentHash,
+      registeredAt: latest.registeredAt,
+    };
+  }
+
+  async list(
+    uri: string,
+  ): Promise<
+    Array<{ uri: string; contentHash: string; registeredAt: string }>
+  > {
+    const parsed = this.parseSafe(uri);
+    if (parsed.kind === 'dispatch-record') {
+      throw new Error(
+        `LocalStorageProvider.list is not supported for dispatch-record URIs: ${uri}`,
+      );
+    }
+    const index = await this.readIndex(this.indexPath(parsed));
+    const sorted = [...index.entries].sort((a, b) =>
+      a.registeredAt < b.registeredAt
+        ? 1
+        : a.registeredAt > b.registeredAt
+          ? -1
+          : 0,
+    );
+    return sorted.map((e) => ({
+      uri: buildAgoraUri({
+        namespace: parsed.namespace,
+        type: parsed.type,
+        name: parsed.name,
+        contentHash: e.contentHash,
+      }),
+      contentHash: e.contentHash,
+      registeredAt: e.registeredAt,
+    }));
+  }
+
+  // ── Blob (content-addressed) path ──────────────────────────────────────
+
+  private async putBlob(
+    parsed: AgoraUriParts,
+    contents: Uint8Array,
+  ): Promise<{ contentHash: string }> {
     const contentHash = computeContentHash(contents);
     if (parsed.contentHash && parsed.contentHash !== contentHash) {
       throw new IntegrityMismatchError(parsed.contentHash, contentHash);
@@ -80,8 +173,10 @@ export class LocalStorageProvider implements StorageProvider {
     return { contentHash };
   }
 
-  async get(uri: string): Promise<Uint8Array> {
-    const parsed = this.parseSafe(uri);
+  private async getBlob(
+    parsed: AgoraUriParts,
+    uri: string,
+  ): Promise<Uint8Array> {
     if (!parsed.contentHash) {
       throw new Error(
         `LocalStorageProvider.get requires a pinned URI with contentHash: ${uri}`,
@@ -113,69 +208,73 @@ export class LocalStorageProvider implements StorageProvider {
     return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
 
-  async resolveLatest(
-    uri: string,
-  ): Promise<
-    { uri: string; contentHash: string; registeredAt: string } | null
-  > {
-    const parsed = this.parseSafe(uri);
-    const index = await this.readIndex(this.indexPath(parsed));
-    if (index.entries.length === 0) return null;
-    let latest = index.entries[0]!;
-    for (const e of index.entries) {
-      if (e.registeredAt > latest.registeredAt) latest = e;
-    }
-    return {
-      uri: buildAgoraUri({
-        namespace: parsed.namespace,
-        type: parsed.type,
-        name: parsed.name,
-        contentHash: latest.contentHash,
-      }),
-      contentHash: latest.contentHash,
-      registeredAt: latest.registeredAt,
-    };
+  // ── Dispatch-record (URI-addressed) path ───────────────────────────────
+
+  private async putDispatchRecord(
+    parsed: Extract<StorageUriParts, { kind: 'dispatch-record' }>,
+    contents: Uint8Array,
+  ): Promise<{ contentHash: string }> {
+    const recordPath = this.dispatchRecordPath(parsed);
+    await mkdir(dirname(recordPath), { recursive: true });
+    // Dispatch records are not content-addressed — writing twice to the same
+    // URI overwrites. Compute the hash anyway for the return value so the
+    // StorageProvider contract is satisfied with a sane value.
+    await writeFile(recordPath, contents);
+    return { contentHash: computeContentHash(contents) };
   }
 
-  async list(
+  private async getDispatchRecord(
+    parsed: Extract<StorageUriParts, { kind: 'dispatch-record' }>,
     uri: string,
-  ): Promise<
-    Array<{ uri: string; contentHash: string; registeredAt: string }>
-  > {
-    const parsed = this.parseSafe(uri);
-    const index = await this.readIndex(this.indexPath(parsed));
-    const sorted = [...index.entries].sort((a, b) =>
-      a.registeredAt < b.registeredAt
-        ? 1
-        : a.registeredAt > b.registeredAt
-          ? -1
-          : 0,
-    );
-    return sorted.map((e) => ({
-      uri: buildAgoraUri({
-        namespace: parsed.namespace,
-        type: parsed.type,
-        name: parsed.name,
-        contentHash: e.contentHash,
-      }),
-      contentHash: e.contentHash,
-      registeredAt: e.registeredAt,
-    }));
+  ): Promise<Uint8Array> {
+    const recordPath = this.dispatchRecordPath(parsed);
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(recordPath);
+    } catch (err) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as NodeJS.ErrnoException).code === 'ENOENT'
+      ) {
+        throw new Error(
+          `LocalStorageProvider: dispatch record not found for URI: ${uri}`,
+        );
+      }
+      throw err;
+    }
+    return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
+
+  // ── Parsing + path helpers ─────────────────────────────────────────────
 
   /**
-   * Parse the URI through agora-core and then defend against path-traversal
-   * segments. The upstream parser rejects empty / slash-containing segments
-   * but accepts "." and "..", either of which would let a caller escape
-   * rootDir when joined into a filesystem path.
+   * Parse the URI through agora-core (permissive variant) and then defend
+   * against path-traversal segments. The upstream parser rejects empty /
+   * slash-containing segments on namespace/type/name but accepts "." and
+   * "..", either of which would let a caller escape rootDir when joined
+   * into a filesystem path. For dispatch records we additionally check each
+   * suffix segment.
    */
-  private parseSafe(uri: string): AgoraUriParts {
-    const parsed = parseAgoraUri(uri);
+  private parseSafe(uri: string): StorageUriParts {
+    const parsed = parseStorageUri(uri);
+    if (parsed.kind === 'blob') {
+      this.assertSafeSegment(parsed.namespace, 'namespace');
+      this.assertSafeSegment(parsed.type, 'type');
+      this.assertSafeSegment(parsed.name, 'name');
+      if (parsed.contentHash !== undefined) {
+        this.assertSafeSegment(parsed.contentHash, 'contentHash');
+      }
+      return parsed;
+    }
+    // dispatch-record
     this.assertSafeSegment(parsed.namespace, 'namespace');
-    this.assertSafeSegment(parsed.type, 'type');
-    this.assertSafeSegment(parsed.name, 'name');
-    if (parsed.contentHash !== undefined) {
-      this.assertSafeSegment(parsed.contentHash, 'contentHash');
+    this.assertSafeSegment(parsed.dispatchId, 'dispatchId');
+    if (parsed.suffix !== undefined) {
+      for (const seg of parsed.suffix.split('/')) {
+        this.assertSafeSegment(seg, 'suffix segment');
+      }
     }
     return parsed;
   }
@@ -234,6 +333,26 @@ export class LocalStorageProvider implements StorageProvider {
       parts.type,
       parts.name,
       '_index.json',
+    );
+  }
+
+  /**
+   * On-disk path for a dispatch-record URI. The suffix may itself contain
+   * `/`; we translate to the platform-native path separator so nested
+   * suffixes land in the right subdirectory.
+   */
+  private dispatchRecordPath(
+    parts: Extract<StorageUriParts, { kind: 'dispatch-record' }>,
+  ): string {
+    const tail = parts.suffix
+      ? parts.suffix.split('/').join(sep)
+      : '';
+    return join(
+      this.opts.rootDir,
+      parts.namespace,
+      'dispatches',
+      parts.dispatchId,
+      tail,
     );
   }
 

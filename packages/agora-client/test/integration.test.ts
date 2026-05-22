@@ -39,6 +39,21 @@
 // what the worker's bundle-fetcher verifies). All three integration
 // cases below run unconditionally now.
 //
+// ── Dispatch-record prefix FIXED ──────────────────────────────────────────
+//
+// A separate blocker also tracked by `it.fails` was that `client.dispatch`
+// unconditionally calls `writeDispatchRecord`, which writes under the
+// reserved `agora://<ns>/dispatches/...` prefix. The storage providers
+// validated URIs through `parseAgoraUri`, which rejects `type === 'dispatches'`
+// as a client-side write-safety guard, so dispatch-record writes threw at
+// the storage layer. Fix: agora-core now exposes a permissive
+// `parseStorageUri` that accepts both normal types AND `dispatches`. The
+// storage providers branch on the URI kind: dispatch records are NOT
+// content-addressed, so they bypass the `_index.json` registry and write
+// the bytes directly to the URI-derived path. The general `parseAgoraUri`
+// safety property is preserved — only `parseStorageUri` (used by storage
+// providers, never by user code) accepts dispatches.
+//
 // ── Bundle-integrity-tampering case ───────────────────────────────────────
 //
 // Excluded by design (the task body grants explicit permission). The only
@@ -87,13 +102,9 @@ import {
 //
 // `dockerAvailable` flips true in `beforeAll` if `docker.ping()` succeeds.
 // `itIf(cond)` returns either `it` (run) or `it.skip` (skip-gracefully).
-// `itIfFails(cond)` returns either `it.fails` or `it.skip` — used by tests
-// that need Docker AND have a known-failure downstream blocker that's not
-// the hash-drift fix this commit addresses.
 let dockerAvailable = false;
 const docker = new Docker();
 const itIf = (cond: boolean): typeof it => (cond ? it : it.skip);
-const itIfFails = (cond: boolean) => (cond ? it.fails : it.skip);
 
 // Current `library/busybox:latest` linux/amd64 manifest digest (matches the
 // digest pinned in `agora-providers-local-docker/test/integration.test.ts`
@@ -327,17 +338,14 @@ describe('agora-client integration — register side (no Docker required)', () =
   );
 
   // The canonical-vs-bytes hash drift in `registerEnv` and
-  // `registerSubagent` is fixed, so this test now reaches the
+  // `registerSubagent` is fixed, so this test reaches the
   // `client.dispatch(...)` step. Dispatch unconditionally calls
   // `writeDispatchRecord`, which writes to a URI under the reserved
-  // `dispatches/` prefix — and `LocalStorageProvider.parseSafe` re-uses
-  // `parseAgoraUri`, which rejects that prefix outright. That's a
-  // pre-existing storage-provider gap (LocalStorageProvider has never
-  // handled dispatch records), not the hash drift this commit addresses,
-  // so the case remains `.fails` until the storage provider grows
-  // dispatch-record support.
-  it.fails(
-    'multiple env bundles merge later-wins on env-bundle secret-key collisions — BLOCKED by LocalStorageProvider lacking dispatch-record (agora://<ns>/dispatches/...) handling',
+  // `dispatches/` prefix. The storage provider now uses the permissive
+  // `parseStorageUri` (from agora-core) instead of `parseAgoraUri`, so
+  // dispatch-record writes are accepted and this case runs unconditionally.
+  it(
+    'multiple env bundles merge later-wins on env-bundle secret-key collisions',
     async () => {
       // The client-side merge happens in `flattenEnvBundleSecrets` (dispatch.ts).
       // Bundles are folded left-to-right with later overriding earlier on a
@@ -395,15 +403,12 @@ describe('agora-client integration — dispatch round-trip (Docker-gated)', () =
   // (capability + subagent + env) followed by `client.dispatch(...)`.
   // With the canonical-bytes / byte-hash fix in registerSubagent,
   // registerEnv, and registerCapability, the register stage no longer
-  // throws on a real LocalStorageProvider. The DISPATCH step, however,
-  // unconditionally calls `writeDispatchRecord`, and
-  // `LocalStorageProvider.parseSafe` rejects URIs under the reserved
-  // `dispatches/` prefix (a pre-existing storage-provider gap, separate
-  // from the hash drift this commit addresses). Marked `itIfFails` so it
-  // skips when Docker is unreachable and is a known-failure when Docker
-  // IS reachable, until the storage provider grows dispatch-record support.
-  itIfFails(dockerAvailable)(
-    'register + dispatch round-trip: resolved block echoes exact content hashes — BLOCKED by LocalStorageProvider lacking dispatch-record (agora://<ns>/dispatches/...) handling',
+  // throws on a real LocalStorageProvider. The DISPATCH step calls
+  // `writeDispatchRecord`, which writes under the reserved `dispatches/`
+  // prefix — now supported by `LocalStorageProvider` via the permissive
+  // `parseStorageUri`. Runs end-to-end whenever Docker is reachable.
+  itIf(dockerAvailable)(
+    'register + dispatch round-trip: resolved block echoes exact content hashes',
     async () => {
       const client = makeClient();
 

@@ -16,8 +16,17 @@
 // converge on a single object — a 412 PreconditionFailed response is
 // treated as success because the blob already exists.
 //
-// The reserved type `dispatches` (§7.8) is rejected at the URI-parsing
-// layer in agora-core; this implementation needs no additional check.
+// Dispatch records (URIs under the reserved `dispatches/` prefix, per §7.8
+// and `buildDispatchRecordUri`) take a separate code path: they are NOT
+// content-addressed, so each URI maps directly to a single S3 object with
+// no `_index.json` and no hash-suffixed `.blob` key:
+//
+//   agora://<namespace>/dispatches/<dispatchId>[/<suffix>]
+//     -> s3://<bucket>/<prefix?>/<namespace>/dispatches/<dispatchId>[/<suffix>]
+//
+// `parseStorageUri` from agora-core is the permissive parser that accepts
+// both shapes. The general `parseAgoraUri` still rejects `dispatches` as a
+// client-side write-safety guard.
 
 import {
   S3Client,
@@ -27,13 +36,14 @@ import {
 } from '@aws-sdk/client-s3';
 
 import {
-  parseAgoraUri,
+  parseStorageUri,
   buildAgoraUri,
   computeContentHash,
   ConflictError,
   IntegrityMismatchError,
   type StorageProvider,
   type AgoraUriParts,
+  type StorageUriParts,
 } from '@quarry-systems/agora-core';
 
 export interface S3StorageProviderOpts {
@@ -130,7 +140,101 @@ export class S3StorageProvider implements StorageProvider {
     uri: string,
     contents: Uint8Array,
   ): Promise<{ contentHash: string }> {
-    const parsed = parseAgoraUri(uri);
+    const parsed = parseStorageUri(uri);
+    if (parsed.kind === 'dispatch-record') {
+      return this.putDispatchRecord(parsed, contents);
+    }
+    return this.putBlob(parsed, contents);
+  }
+
+  async get(uri: string): Promise<Uint8Array> {
+    const parsed = parseStorageUri(uri);
+    if (parsed.kind === 'dispatch-record') {
+      return this.getDispatchRecord(parsed);
+    }
+    if (!parsed.contentHash) {
+      throw new Error(
+        `S3StorageProvider.get requires a pinned URI with contentHash: ${uri}`,
+      );
+    }
+    const blobKey = this.blobKey(parsed, parsed.contentHash);
+    const resp = await this.s3.send(
+      new GetObjectCommand({ Bucket: this.opts.bucket, Key: blobKey }),
+    );
+    const bytes = await streamToUint8Array(resp.Body);
+    const actual = computeContentHash(bytes);
+    if (actual !== parsed.contentHash) {
+      throw new IntegrityMismatchError(parsed.contentHash, actual);
+    }
+    return bytes;
+  }
+
+  async resolveLatest(
+    uri: string,
+  ): Promise<
+    { uri: string; contentHash: string; registeredAt: string } | null
+  > {
+    const parsed = parseStorageUri(uri);
+    if (parsed.kind === 'dispatch-record') {
+      throw new Error(
+        `S3StorageProvider.resolveLatest is not supported for dispatch-record URIs: ${uri}`,
+      );
+    }
+    const index = await this.readIndex(parsed);
+    if (index.entries.length === 0) return null;
+    let latest = index.entries[0]!;
+    for (const e of index.entries) {
+      if (e.registeredAt > latest.registeredAt) latest = e;
+    }
+    return {
+      uri: buildAgoraUri({
+        namespace: parsed.namespace,
+        type: parsed.type,
+        name: parsed.name,
+        contentHash: latest.contentHash,
+      }),
+      contentHash: latest.contentHash,
+      registeredAt: latest.registeredAt,
+    };
+  }
+
+  async list(
+    uri: string,
+  ): Promise<
+    Array<{ uri: string; contentHash: string; registeredAt: string }>
+  > {
+    const parsed = parseStorageUri(uri);
+    if (parsed.kind === 'dispatch-record') {
+      throw new Error(
+        `S3StorageProvider.list is not supported for dispatch-record URIs: ${uri}`,
+      );
+    }
+    const index = await this.readIndex(parsed);
+    const sorted = [...index.entries].sort((a, b) =>
+      a.registeredAt < b.registeredAt
+        ? 1
+        : a.registeredAt > b.registeredAt
+          ? -1
+          : 0,
+    );
+    return sorted.map((e) => ({
+      uri: buildAgoraUri({
+        namespace: parsed.namespace,
+        type: parsed.type,
+        name: parsed.name,
+        contentHash: e.contentHash,
+      }),
+      contentHash: e.contentHash,
+      registeredAt: e.registeredAt,
+    }));
+  }
+
+  // ── Blob (content-addressed) path ──────────────────────────────────────
+
+  private async putBlob(
+    parsed: AgoraUriParts,
+    contents: Uint8Array,
+  ): Promise<{ contentHash: string }> {
     const contentHash = computeContentHash(contents);
     if (parsed.contentHash && parsed.contentHash !== contentHash) {
       throw new IntegrityMismatchError(parsed.contentHash, contentHash);
@@ -157,73 +261,42 @@ export class S3StorageProvider implements StorageProvider {
     return { contentHash };
   }
 
-  async get(uri: string): Promise<Uint8Array> {
-    const parsed = parseAgoraUri(uri);
-    if (!parsed.contentHash) {
-      throw new Error(
-        `S3StorageProvider.get requires a pinned URI with contentHash: ${uri}`,
-      );
-    }
-    const blobKey = this.blobKey(parsed, parsed.contentHash);
+  // ── Dispatch-record (URI-addressed) path ───────────────────────────────
+
+  private async putDispatchRecord(
+    parsed: Extract<StorageUriParts, { kind: 'dispatch-record' }>,
+    contents: Uint8Array,
+  ): Promise<{ contentHash: string }> {
+    const key = this.dispatchRecordKey(parsed);
+    // Dispatch records are NOT content-addressed — overwrites are intentional
+    // (re-sealing the same dispatchId replaces the prior record). Compute
+    // the hash anyway for the return value so the StorageProvider contract
+    // is satisfied with a sane value.
+    await this.s3.send(
+      new PutObjectCommand({
+        Bucket: this.opts.bucket,
+        Key: key,
+        Body: contents,
+      }),
+    );
+    return { contentHash: computeContentHash(contents) };
+  }
+
+  private async getDispatchRecord(
+    parsed: Extract<StorageUriParts, { kind: 'dispatch-record' }>,
+  ): Promise<Uint8Array> {
+    const key = this.dispatchRecordKey(parsed);
     const resp = await this.s3.send(
-      new GetObjectCommand({ Bucket: this.opts.bucket, Key: blobKey }),
+      new GetObjectCommand({ Bucket: this.opts.bucket, Key: key }),
     );
-    const bytes = await streamToUint8Array(resp.Body);
-    const actual = computeContentHash(bytes);
-    if (actual !== parsed.contentHash) {
-      throw new IntegrityMismatchError(parsed.contentHash, actual);
-    }
-    return bytes;
+    return await streamToUint8Array(resp.Body);
   }
 
-  async resolveLatest(
-    uri: string,
-  ): Promise<
-    { uri: string; contentHash: string; registeredAt: string } | null
-  > {
-    const parsed = parseAgoraUri(uri);
-    const index = await this.readIndex(parsed);
-    if (index.entries.length === 0) return null;
-    let latest = index.entries[0]!;
-    for (const e of index.entries) {
-      if (e.registeredAt > latest.registeredAt) latest = e;
-    }
-    return {
-      uri: buildAgoraUri({
-        namespace: parsed.namespace,
-        type: parsed.type,
-        name: parsed.name,
-        contentHash: latest.contentHash,
-      }),
-      contentHash: latest.contentHash,
-      registeredAt: latest.registeredAt,
-    };
-  }
-
-  async list(
-    uri: string,
-  ): Promise<
-    Array<{ uri: string; contentHash: string; registeredAt: string }>
-  > {
-    const parsed = parseAgoraUri(uri);
-    const index = await this.readIndex(parsed);
-    const sorted = [...index.entries].sort((a, b) =>
-      a.registeredAt < b.registeredAt
-        ? 1
-        : a.registeredAt > b.registeredAt
-          ? -1
-          : 0,
-    );
-    return sorted.map((e) => ({
-      uri: buildAgoraUri({
-        namespace: parsed.namespace,
-        type: parsed.type,
-        name: parsed.name,
-        contentHash: e.contentHash,
-      }),
-      contentHash: e.contentHash,
-      registeredAt: e.registeredAt,
-    }));
+  private dispatchRecordKey(
+    parts: Extract<StorageUriParts, { kind: 'dispatch-record' }>,
+  ): string {
+    const tail = parts.suffix ? `/${parts.suffix}` : '';
+    return `${this.prefix}${parts.namespace}/dispatches/${parts.dispatchId}${tail}`;
   }
 
   private keyFor(
