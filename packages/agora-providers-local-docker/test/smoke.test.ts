@@ -220,6 +220,29 @@ describe('LocalDockerProvider.cancel — graceful then forceful kill', () => {
     expect(killSpy.mock.calls[0]![0]).toEqual({ signal: 'SIGTERM' });
   });
 
+  it('resolves cleanly when SIGTERM races with container already stopped (409 Conflict)', async () => {
+    // Reproduces the race where the container exits between the caller's
+    // decision to cancel and cancel() actually firing — Docker returns 409
+    // and dockerode rejects. cancel() must swallow that and verify terminal
+    // state via inspect(), not throw.
+    const killSpy = vi.fn(async () => {
+      throw new Error('(HTTP code 409) unexpected - Container is not running');
+    });
+    const inspectSpy = vi.fn(async () => ({ State: { Running: false, Status: 'exited' } }));
+    const container = { kill: killSpy, inspect: inspectSpy };
+    const fakeDocker = { getContainer: () => container };
+    const provider = new LocalDockerProvider({
+      docker: fakeDocker as never,
+      sigtermGraceSeconds: 1,
+    });
+
+    await expect(provider.cancel({ providerTaskId: 'c-1' }, baseCtx)).resolves.toBeUndefined();
+
+    expect(killSpy).toHaveBeenCalledTimes(1);
+    expect(killSpy.mock.calls[0]![0]).toEqual({ signal: 'SIGTERM' });
+    expect(inspectSpy).toHaveBeenCalled();
+  });
+
   it('escalates to SIGKILL when grace period elapses without stop', async () => {
     vi.useFakeTimers();
     try {

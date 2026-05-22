@@ -103,7 +103,11 @@ export class LocalDockerProvider implements ComputeProvider {
   async cancel(handle: TaskHandle, _ctx: ProviderContext): Promise<void> {
     const container = this.docker.getContainer(handle.providerTaskId);
 
-    await container.kill({ signal: 'SIGTERM' });
+    try {
+      await container.kill({ signal: 'SIGTERM' });
+    } catch {
+      // container may have already stopped — fall through to terminal-state check.
+    }
 
     // Poll inspect() until the container is no longer Running or the grace
     // period elapses. Poll cadence is 100ms — small relative to the typical
