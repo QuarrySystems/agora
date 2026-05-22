@@ -427,13 +427,31 @@ async function readSubagentCapabilities(
   const def = parsed as { capabilities?: unknown };
   if (!Array.isArray(def.capabilities)) return [];
   // The subagent definition stores capabilities as a sorted list of content
-  // hashes (see subagent-register.ts). We re-resolve them to CapabilityRefs
-  // by enumerating the namespace's capability registry.
-  const wantedHashes = new Set<string>(
-    def.capabilities.filter((h): h is string => typeof h === 'string'),
+  // hashes (see subagent-register.ts). Round-trip each hash to its
+  // CapabilityRef via the StorageProvider's `resolveByHash`. Hashes that
+  // no longer resolve (e.g. capability was GC'd) are silently dropped —
+  // the dispatch proceeds with the remaining capabilities rather than
+  // failing the whole call.
+  const wantedHashes: string[] = def.capabilities.filter(
+    (h): h is string => typeof h === 'string',
   );
-  if (wantedHashes.size === 0) return [];
-  return [];
+  if (wantedHashes.length === 0) return [];
+  const hits = await Promise.all(
+    wantedHashes.map((contentHash) =>
+      client.storage.resolveByHash({
+        namespace: client.namespace,
+        type: 'capability',
+        contentHash,
+      }),
+    ),
+  );
+  return hits
+    .filter((h): h is NonNullable<typeof h> => h !== null)
+    .map((h) => ({
+      name: h.name,
+      contentHash: h.contentHash,
+      registeredAt: h.registeredAt,
+    }));
 }
 
 /**
