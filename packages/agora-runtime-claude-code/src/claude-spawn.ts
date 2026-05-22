@@ -51,7 +51,7 @@ export async function spawnClaude(
     child.on("error", (err: Error) => {
       reject(err);
     });
-    child.on("exit", (code: number | null) => {
+    child.on("close", (code: number | null) => {
       resolve({ exitCode: code ?? -1, stdout, stderr });
     });
   });

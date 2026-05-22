@@ -177,4 +177,60 @@ describe("spawnClaude", () => {
       }),
     ).rejects.toBeInstanceOf(Error);
   });
+
+  it.skipIf(skipOnWindows)(
+    "captures all stdout even when output is large (stream drain test)",
+    async () => {
+      // Generate substantial output (many lines) to stress the stdio draining.
+      // With 'exit' handler, data may be lost if streams haven't fully drained.
+      // With 'close' handler, all data is guaranteed to be captured.
+      const lineCount = 1000;
+      const lines = Array.from({ length: lineCount }, (_, i) => `line ${i}`);
+      const bashScript = `#!/bin/bash\n${lines.map((line) => `echo "${line}"`).join("\n")}\nexit 0\n`;
+
+      await writeFile(stubBin, bashScript);
+      await chmod(stubBin, 0o755);
+
+      const result = await spawnClaude({
+        prompt: "hi",
+        workspaceDir: dir,
+        env: {},
+        claudeBin: stubBin,
+      });
+
+      expect(result.exitCode).toBe(0);
+      // Verify all lines are captured
+      const outputLines = result.stdout.split("\n").filter((l) => l.length > 0);
+      expect(outputLines).toHaveLength(lineCount);
+      expect(result.stdout).toContain("line 0");
+      expect(result.stdout).toContain(`line ${lineCount - 1}`);
+    },
+  );
+
+  it.skipIf(skipOnWindows)(
+    "waits for all stdio to flush before resolving (uses close, not exit)",
+    async () => {
+      // This test reproduces the issue: 'exit' fires when process terminates
+      // but streams may still be draining. 'close' fires only after all stdio
+      // is fully flushed. We emit data on a small delay to ensure the streams
+      // aren't empty when the process exits.
+      await writeFile(
+        stubBin,
+        '#!/bin/bash\n(echo "first"; sleep 0.1; echo "second") &\nwait\nexit 0\n',
+      );
+      await chmod(stubBin, 0o755);
+
+      const result = await spawnClaude({
+        prompt: "hi",
+        workspaceDir: dir,
+        env: {},
+        claudeBin: stubBin,
+      });
+
+      expect(result.exitCode).toBe(0);
+      // Both lines must be present; 'exit' handler can lose "second"
+      expect(result.stdout).toContain("first");
+      expect(result.stdout).toContain("second");
+    },
+  );
 });
