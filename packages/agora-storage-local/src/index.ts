@@ -24,6 +24,7 @@
 
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { join, dirname, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
   parseStorageUri,
@@ -63,6 +64,18 @@ export class LocalStorageProvider implements StorageProvider {
   private writeLocks = new Map<string, Promise<void>>();
 
   constructor(private opts: LocalStorageProviderOpts) {}
+
+  /**
+   * Canonical `file://` URI for the storage root. Surfaced as the
+   * `StorageProvider.rootUri` duck-typed property that `agora-client`'s
+   * dispatch path reads when populating the worker's `AGORA_STORAGE_URI`
+   * env var (§6.1). `pathToFileURL` handles Windows drive letters / UNC
+   * normalization correctly so the resulting URI round-trips through
+   * Node's `fileURLToPath` on the worker side.
+   */
+  get rootUri(): string {
+    return pathToFileURL(this.opts.rootDir).href;
+  }
 
   async put(
     uri: string,
