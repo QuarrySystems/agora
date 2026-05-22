@@ -46,6 +46,31 @@ itIf('put + get round-trips bytes by content hash via LocalStack', async () => {
   expect(new TextDecoder().decode(retrieved)).toBe('hello s3');
 });
 
+describe('S3StorageProvider.rootUri', () => {
+  it('bucket-only form returns s3://<bucket>', () => {
+    const sp = new S3StorageProvider({ bucket: 'my-bucket', client });
+    expect(sp.rootUri).toBe('s3://my-bucket');
+  });
+
+  it('bucket + prefix returns s3://<bucket>/<prefix> with no trailing slash', () => {
+    const sp = new S3StorageProvider({
+      bucket: 'my-bucket',
+      client,
+      prefix: 'agora/v1',
+    });
+    expect(sp.rootUri).toBe('s3://my-bucket/agora/v1');
+  });
+
+  it('normalizes a trailing-slash prefix the same as a clean one', () => {
+    const sp = new S3StorageProvider({
+      bucket: 'my-bucket',
+      client,
+      prefix: 'agora/v1/',
+    });
+    expect(sp.rootUri).toBe('s3://my-bucket/agora/v1');
+  });
+});
+
 // --------------------------------------------------------------------------
 // Fake-client unit tests for the optimistic-concurrency index update.
 // --------------------------------------------------------------------------
