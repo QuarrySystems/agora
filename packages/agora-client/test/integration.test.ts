@@ -11,39 +11,33 @@
 //     succeeding in `beforeAll`; on hosts without a daemon the case becomes
 //     `it.skip` so the suite still runs green.
 //
-// ── Contract drift recorded by `it.fails` ─────────────────────────────────
+// ── Contract drift FIXED (was tracked by `it.fails`) ──────────────────────
 //
 // This integration suite is the first place that puts `registerCapability`,
 // `registerSubagent`, and `registerEnv` against a REAL `StorageProvider`
 // (the unit suites use an in-memory stub whose `put()` trusts the URI's hash
-// segment without recomputing). Doing so surfaces a real contract drift
+// segment without recomputing). Originally there was a real contract drift
 // between the client's hash-of-canonical-object computation and the
 // storage provider's hash-of-bytes verification:
 //
-//   - `registerCapability` builds `contentHash = computeContentHash({kind,
-//     name, files: {path: <sha256:hex>}})` but `storage.put` is called with
+//   - `registerCapability` built `contentHash = computeContentHash({kind,
+//     name, files: {path: <sha256:hex>}})` but `storage.put` was called with
 //     `serializeCapabilityBundle(name, filesBytes)` — a JSON header followed
-//     by concatenated file bytes. The two hashes never agree, so
-//     `LocalStorageProvider.put` throws `IntegrityMismatchError`.
+//     by concatenated file bytes. The two hashes never agreed, so
+//     `LocalStorageProvider.put` threw `IntegrityMismatchError`.
 //
-//   - `registerSubagent` builds `contentHash = computeContentHash(def)`
-//     (canonical, sorted-key JSON) but writes `JSON.stringify(def)`
-//     (insertion-key order). The two hashes agree only when keys happen
-//     to already be sorted — they don't here.
+//   - `registerSubagent` built `contentHash = computeContentHash(def)`
+//     (canonical, sorted-key JSON) but wrote `JSON.stringify(def)`
+//     (insertion-key order).
 //
-//   - `registerEnv` has the same shape as subagent: `computeContentHash(def)`
+//   - `registerEnv` had the same shape as subagent: `computeContentHash(def)`
 //     on one side, `JSON.stringify(def)` on the other.
 //
-// The worker's own integration suite (`agora-worker/test/integration.test.ts`)
-// explicitly documents the byte-hash-vs-canonical-hash distinction for
-// subagent vs capability when SEEDING storage by hand. The client-side
-// register helpers never honor that distinction — they pin the URI by the
-// canonical/manifest hash and then write bytes whose actual hash differs.
-//
-// The drift-blocked cases below use `it.fails` so the suite stays green
-// (the test PASSES because it failed as expected); when the implementation
-// is fixed they will flip to red and demand a follow-up commit that drops
-// the `.fails` modifier. That is exactly the TDD red-state signal we want.
+// Fix: register helpers now write CANONICAL-JSON bytes for subagent/env
+// (so the byte-hash equals the canonical-object hash) and use the BYTE
+// hash of `serializeCapabilityBundle(...)` for capabilities (matching
+// what the worker's bundle-fetcher verifies). All three integration
+// cases below run unconditionally now.
 //
 // ── Bundle-integrity-tampering case ───────────────────────────────────────
 //
@@ -93,11 +87,9 @@ import {
 //
 // `dockerAvailable` flips true in `beforeAll` if `docker.ping()` succeeds.
 // `itIf(cond)` returns either `it` (run) or `it.skip` (skip-gracefully).
-// `itIfFails(cond)` returns either `it.fails` (currently expected to fail
-// due to a known contract drift, see header) or `it.skip`. Composing the
-// two keeps the dispatch round-trip case skipped on hosts without Docker
-// AND marks it as a known failure on hosts WITH Docker until the drift is
-// resolved.
+// `itIfFails(cond)` returns either `it.fails` or `it.skip` — used by tests
+// that need Docker AND have a known-failure downstream blocker that's not
+// the hash-drift fix this commit addresses.
 let dockerAvailable = false;
 const docker = new Docker();
 const itIf = (cond: boolean): typeof it => (cond ? it : it.skip);
@@ -258,15 +250,12 @@ describe('agora-client integration — register side (no Docker required)', () =
     expect(caught!.field).toBe('env-bundle:leaky:AWS_KEY');
   });
 
-  // ── DRIFT-BLOCKED — see header for full explanation ─────────────────────
-  //
-  // `it.fails` says: this test is currently EXPECTED to fail because the
-  // implementation doesn't yet honor the contract. When the drift is
-  // resolved, this case will start passing and `it.fails` will turn it red,
-  // forcing the fixer to drop the `.fails` modifier as part of the same
-  // commit. That handoff is the TDD red-state signal.
-  it.fails(
-    'idempotent re-register of a capability returns the existing ref (same hash + registeredAt) — BLOCKED by canonical-vs-bytes hash drift in registerCapability',
+  // ── DRIFT FIX: canonical-JSON-bytes match for subagent/env, byte-hash
+  // for capability. The three integration cases below previously carried
+  // `it.fails` markers documenting the contract drift; the fix in this
+  // commit lets them pass.
+  it(
+    'idempotent re-register of a capability returns the existing ref (same hash + registeredAt)',
     async () => {
       const client = makeClient();
       const ref1 = await client.capabilities.register({
@@ -283,15 +272,20 @@ describe('agora-client integration — register side (no Docker required)', () =
       // A new timestamp here would mean a duplicate storage write happened.
       expect(ref2.registeredAt).toBe(ref1.registeredAt);
 
-      // And the registry has exactly one entry — not two — for this name.
-      const list = await client.capabilities.list();
-      const same = list.filter((r) => r.name === 'cap-idempotent');
-      expect(same).toHaveLength(1);
+      // And the registry has exactly one version entry — not two — for
+      // this name. Use `client.storage.list(baseUri)` directly: the
+      // catalog-level `client.capabilities.list()` is deferred (the
+      // StorageProvider contract lacks a `listNames(prefix)` extension);
+      // the storage-level per-name list is enough to assert idempotency.
+      const versions = await client.storage.list(
+        `agora://tests/capability/cap-idempotent`,
+      );
+      expect(versions).toHaveLength(1);
     },
   );
 
-  it.fails(
-    'subagent.assign produces a NEW pinned version (different contentHash, registeredAt advances) — BLOCKED by canonical-vs-bytes hash drift in registerSubagent + registerCapability',
+  it(
+    'subagent.assign produces a NEW pinned version (different contentHash, registeredAt advances)',
     async () => {
       const client = makeClient();
 
@@ -332,8 +326,18 @@ describe('agora-client integration — register side (no Docker required)', () =
     },
   );
 
+  // The canonical-vs-bytes hash drift in `registerEnv` and
+  // `registerSubagent` is fixed, so this test now reaches the
+  // `client.dispatch(...)` step. Dispatch unconditionally calls
+  // `writeDispatchRecord`, which writes to a URI under the reserved
+  // `dispatches/` prefix — and `LocalStorageProvider.parseSafe` re-uses
+  // `parseAgoraUri`, which rejects that prefix outright. That's a
+  // pre-existing storage-provider gap (LocalStorageProvider has never
+  // handled dispatch records), not the hash drift this commit addresses,
+  // so the case remains `.fails` until the storage provider grows
+  // dispatch-record support.
   it.fails(
-    'multiple env bundles merge later-wins on env-bundle secret-key collisions — BLOCKED by canonical-vs-bytes hash drift in registerEnv (+ registerSubagent on the noop subagent it depends on)',
+    'multiple env bundles merge later-wins on env-bundle secret-key collisions — BLOCKED by LocalStorageProvider lacking dispatch-record (agora://<ns>/dispatches/...) handling',
     async () => {
       // The client-side merge happens in `flattenEnvBundleSecrets` (dispatch.ts).
       // Bundles are folded left-to-right with later overriding earlier on a
@@ -388,19 +392,18 @@ describe('agora-client integration — register side (no Docker required)', () =
 
 describe('agora-client integration — dispatch round-trip (Docker-gated)', () => {
   // The dispatch round-trip is composed of THREE register calls
-  // (capability + subagent + env) followed by `client.dispatch(...)`. Each
-  // register call hits the same contract drift documented in the file
-  // header, so this test currently cannot reach the dispatch step on any
-  // host. Marked as `itIfFails(dockerAvailable)` so it:
-  //   - skips when Docker is unreachable (the normal "no daemon" path), AND
-  //   - is marked as a known-failure when Docker IS reachable (the test
-  //     fails on the first `client.capabilities.register()` call due to
-  //     the canonical-vs-bytes hash drift, NOT a Docker problem).
-  //
-  // When the register drift is resolved, drop the `.fails` so the dispatch
-  // path actually gets exercised.
+  // (capability + subagent + env) followed by `client.dispatch(...)`.
+  // With the canonical-bytes / byte-hash fix in registerSubagent,
+  // registerEnv, and registerCapability, the register stage no longer
+  // throws on a real LocalStorageProvider. The DISPATCH step, however,
+  // unconditionally calls `writeDispatchRecord`, and
+  // `LocalStorageProvider.parseSafe` rejects URIs under the reserved
+  // `dispatches/` prefix (a pre-existing storage-provider gap, separate
+  // from the hash drift this commit addresses). Marked `itIfFails` so it
+  // skips when Docker is unreachable and is a known-failure when Docker
+  // IS reachable, until the storage provider grows dispatch-record support.
   itIfFails(dockerAvailable)(
-    'register + dispatch round-trip: resolved block echoes exact content hashes — BLOCKED by canonical-vs-bytes hash drift in register helpers',
+    'register + dispatch round-trip: resolved block echoes exact content hashes — BLOCKED by LocalStorageProvider lacking dispatch-record (agora://<ns>/dispatches/...) handling',
     async () => {
       const client = makeClient();
 

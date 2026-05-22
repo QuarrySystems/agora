@@ -9,10 +9,13 @@
 //     `capability:<name>:<path>` on the first match. Binary inputs
 //     (`Uint8Array`) are not scanned — the scanner is text-only by
 //     contract.
-//   - Computes a canonical content hash over a deterministic
-//     `{name, files: {path: <sha256:hex of bytes>}}` manifest. Path order
-//     is normalized by `computeContentHash` (which sorts object keys), so
-//     identical file contents in any insertion order yield the same hash.
+//   - Serializes the bundle deterministically (`serializeCapabilityBundle`:
+//     a JSON header line listing entries sorted by path, followed by the
+//     concatenated file bytes) and computes the bundle's content hash as
+//     `computeContentHash(serializedBundleBytes)`. Because the serializer
+//     sorts entries by path, identical file contents in any insertion
+//     order yield byte-identical output and therefore the same hash.
+//     This matches what the worker's bundle-fetcher verifies on read.
 //   - If the latest registration for this logical name already matches
 //     this content hash, returns the existing `CapabilityRef` without
 //     issuing a duplicate put (idempotent).
@@ -85,19 +88,20 @@ export async function registerCapability(
     }
   }
 
-  // 2. Derive a canonical manifest of (path → per-file content hash) and
-  //    fold that into the bundle's overall content hash. Because
-  //    `computeContentHash` canonicalizes JSON by sorting object keys,
-  //    the resulting hash is order-independent across the input map.
-  const fileHashes: Record<string, string> = {};
-  for (const [path, bytes] of Object.entries(filesBytes)) {
-    fileHashes[path] = computeContentHash(bytes);
-  }
-  const contentHash = computeContentHash({
-    kind: 'capability',
-    name: opts.name,
-    files: fileHashes,
-  });
+  // 2. Pack the bundle bytes deterministically and hash THOSE bytes.
+  //    The capability bundle is binary (JSON header + concatenated file
+  //    bytes), and the worker's bundle-fetcher verifies it by hashing the
+  //    raw bytes (`computeContentHash(bytes)`), NOT by canonicalizing the
+  //    manifest. The URI's `contentHash` must therefore be the byte-hash
+  //    of the serialized bundle — otherwise the storage provider's
+  //    put-side check throws IntegrityMismatchError, AND the worker would
+  //    later reject the same blob it was asked to fetch.
+  //
+  //    `serializeCapabilityBundle` is fully deterministic (entries sorted
+  //    by path), so the same input files always produce the same bundle
+  //    bytes — idempotency is preserved.
+  const bundlePayload = serializeCapabilityBundle(opts.name, filesBytes);
+  const contentHash = computeContentHash(bundlePayload);
 
   const baseUri = buildAgoraUri({
     namespace: client.namespace,
@@ -116,14 +120,13 @@ export async function registerCapability(
     };
   }
 
-  // 4. Otherwise, pack the bundle bytes and put them at the pinned URI.
+  // 4. Otherwise, write the packed bytes at the pinned URI.
   const pinnedUri = buildAgoraUri({
     namespace: client.namespace,
     type: 'capability',
     name: opts.name,
     contentHash,
   });
-  const bundlePayload = serializeCapabilityBundle(opts.name, filesBytes);
   await client.storage.put(pinnedUri, bundlePayload);
 
   // The storage layer is the authority on registeredAt — re-read it.

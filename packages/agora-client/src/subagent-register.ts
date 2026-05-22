@@ -17,6 +17,7 @@
 
 import {
   buildAgoraUri,
+  canonicalJsonString,
   computeContentHash,
   type CapabilityRef,
   type SubagentRef,
@@ -86,7 +87,18 @@ export async function registerSubagent(
   if (latest && latest.contentHash === contentHash) {
     registeredAt = latest.registeredAt;
   } else {
-    await client.storage.put(pinnedUri, new TextEncoder().encode(JSON.stringify(def)));
+    // Write the CANONICAL JSON bytes (sorted-key serialization) — not
+    // `JSON.stringify(def)`. The storage provider recomputes the byte-hash
+    // and compares against the pinned URI's hash; if we wrote insertion-
+    // order JSON, the byte-hash would diverge from the canonical-object
+    // hash embedded in the URI and `put` would throw IntegrityMismatchError.
+    // The worker's bundle-fetcher re-parses these bytes as JSON and
+    // re-hashes the resulting object via canonical JSON, so the round-trip
+    // remains coherent on both sides.
+    await client.storage.put(
+      pinnedUri,
+      new TextEncoder().encode(canonicalJsonString(def)),
+    );
     // The storage layer is the authority on registeredAt — re-read it.
     // If resolveLatest returns null here, the storage provider is inconsistent
     // (a put just succeeded for this name); fail fast rather than inventing a

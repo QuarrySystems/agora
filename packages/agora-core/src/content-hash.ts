@@ -32,6 +32,12 @@ function isRawBytes(input: unknown): input is Uint8Array {
  * `undefined` values inside objects are dropped (consistent with
  * JSON.stringify), and top-level `undefined` becomes the literal string
  * "undefined" — callers should not pass `undefined` at the top level.
+ *
+ * Exposed under the public name {@link canonicalJsonString} so callers
+ * (notably the agora-client register helpers) can write the SAME bytes
+ * to storage that `computeContentHash` would hash internally — anything
+ * else risks an `IntegrityMismatchError` on the storage provider's
+ * put-side hash check.
  */
 function canonicalize(value: unknown): string {
   if (value === null) return 'null';
@@ -51,6 +57,17 @@ function canonicalize(value: unknown): string {
     parts.push(`${JSON.stringify(k)}:${canonicalize(v)}`);
   }
   return `{${parts.join(',')}}`;
+}
+
+/**
+ * Public alias for the internal canonical-JSON serializer. Callers that
+ * need to PRODUCE the exact bytes `computeContentHash` would hash for an
+ * object (e.g. to write them to storage so the put-side byte-hash check
+ * matches the URI's pinned hash) should use this rather than
+ * `JSON.stringify`, whose key order is insertion-defined.
+ */
+export function canonicalJsonString(value: unknown): string {
+  return canonicalize(value);
 }
 
 /**
