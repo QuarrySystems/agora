@@ -18,10 +18,18 @@ import type { RuntimeInvocation } from "@quarry-systems/agora-core";
 Mustache.escape = (s: string): string => s;
 
 export function renderPrompt(spec: RuntimeInvocation): string {
-  if (spec.promptTemplate !== undefined) {
+  // Storage round-trips JSON null for an absent field, so we test for a
+  // non-empty string explicitly rather than relying on `!== undefined`.
+  // Otherwise a subagent registered with only `systemPrompt` (`promptTemplate`
+  // serialized as null) would be handed to Mustache and crash with
+  // "Template should be a string".
+  if (
+    typeof spec.promptTemplate === "string" &&
+    spec.promptTemplate.length > 0
+  ) {
     return Mustache.render(spec.promptTemplate, spec.input ?? {});
   }
-  if (spec.systemPrompt !== undefined) {
+  if (typeof spec.systemPrompt === "string" && spec.systemPrompt.length > 0) {
     return spec.systemPrompt;
   }
   throw new Error(
