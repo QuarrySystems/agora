@@ -25,6 +25,16 @@ export interface WorkerConfig {
   disableNeedsInputHelper: boolean;
 }
 
+function parsePositiveInteger(raw: string, varName: string): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `agora-worker: ${varName} must be a non-negative integer, got: ${raw}`,
+    );
+  }
+  return n;
+}
+
 export function parseWorkerEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): WorkerConfig {
@@ -82,7 +92,7 @@ export function parseWorkerEnv(
 
   const runtimeAdapter = env.AGORA_RUNTIME_ADAPTER || "claude-code";
   const setupTimeoutSeconds = env.AGORA_SETUP_TIMEOUT_SECONDS
-    ? Number(env.AGORA_SETUP_TIMEOUT_SECONDS)
+    ? parsePositiveInteger(env.AGORA_SETUP_TIMEOUT_SECONDS, "AGORA_SETUP_TIMEOUT_SECONDS")
     : 120;
   const disableNeedsInputHelper =
     env.AGORA_DISABLE_NEEDS_INPUT_HELPER === "true";

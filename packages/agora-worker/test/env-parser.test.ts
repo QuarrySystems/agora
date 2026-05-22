@@ -142,6 +142,14 @@ describe("parseWorkerEnv", () => {
       expect(parseWorkerEnv(env).setupTimeoutSeconds).toBe(300);
     });
 
+    it("throws when AGORA_SETUP_TIMEOUT_SECONDS is not a valid non-negative integer", () => {
+      const env = baseEnv();
+      env.AGORA_SETUP_TIMEOUT_SECONDS = "abc";
+      expect(() => parseWorkerEnv(env)).toThrow(
+        /AGORA_SETUP_TIMEOUT_SECONDS must be a non-negative integer/
+      );
+    });
+
     it("defaults disableNeedsInputHelper to false", () => {
       const cfg = parseWorkerEnv(baseEnv());
       expect(cfg.disableNeedsInputHelper).toBe(false);
