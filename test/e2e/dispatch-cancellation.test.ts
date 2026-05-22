@@ -22,6 +22,8 @@
 // uses a per-test `mkdtemp` directory via `useTempStorageRoot` so prior
 // runs can't pollute content-hash invariants.
 
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { describe, expect } from 'vitest';
 import { makeClient } from './helpers/make-client.js';
 import { probeDocker, itIfDocker } from './helpers/docker-skip.js';
@@ -92,6 +94,104 @@ describe('E2E: dispatch cancellation (§7.6)', () => {
       // SIGKILL at `graceSeconds`. We allow 2s of slack on top of the
       // configured grace for daemon round-trips and inspect-poll cadence.
       expect(cancelElapsedMs).toBeLessThan((graceSeconds + 2) * 1000);
+    },
+    60_000,
+  );
+
+  itIfDocker(
+    'cancel during execution emits dispatch.cancelled to the callback URL with the matching dispatchId',
+    async () => {
+      // §7.6 contract: "The worker traps SIGTERM, attempts to emit
+      // `dispatch.cancelled`, releases channel subscriptions, and exits."
+      // We verify the lifecycle event itself (not just `failure.reason`) by
+      // standing up a local HTTP listener, configuring the dispatch's
+      // `callback.url` to point at it, and asserting the captured POSTs
+      // include a `dispatch.cancelled` event tagged with our dispatchId.
+      // This mirrors the callback-signing-roundtrip.test.ts pattern.
+      const received: Array<{ body: string }> = [];
+      const server = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk;
+        });
+        req.on('end', () => {
+          received.push({ body });
+          res.statusCode = 200;
+          res.end('ok');
+        });
+      });
+      // Bind to all interfaces on an OS-assigned port so the worker
+      // container can reach us via host.docker.internal. Binding to
+      // 127.0.0.1 would be unreachable from inside the container.
+      await new Promise<void>((resolve) =>
+        server.listen(0, '0.0.0.0', resolve),
+      );
+
+      try {
+        const port = (server.address() as AddressInfo).port;
+        // host.docker.internal resolves to the host on Docker Desktop
+        // (Windows / Mac) automatically. Linux requires an
+        // `extra_hosts: host-gateway` mapping the local-docker provider
+        // does not currently configure — see callback-signing-roundtrip's
+        // file header for why that's an accepted skip on Linux for now.
+        const callbackUrl = `http://host.docker.internal:${port}/cb`;
+
+        const graceSeconds = 5;
+        const client = makeClient({
+          namespace: 'cancel-emit',
+          storageRoot: storageRoot(),
+          dockerOpts: { sigtermGraceSeconds: graceSeconds },
+        });
+
+        const cap = await client.capabilities.register({
+          name: 'long-run-emit',
+          files: { 'agora-setup.sh': '#!/bin/sh\nsleep 600\n' },
+        });
+        await client.subagent.register({
+          name: 'long-emit',
+          systemPrompt: 'noop',
+          capabilities: [cap],
+        });
+        await client.env.register({ name: 'e', values: {} });
+
+        const dispatchId = `cancel-emit-${Date.now()}`;
+        const dispatchPromise = client.dispatch({
+          subagent: 'long-emit',
+          env: 'e',
+          target: 'local',
+          dispatchId,
+          callback: { url: callbackUrl, signatureAlgorithm: 'sha256' },
+          workerImage: WORKER_IMAGE,
+        } as never);
+
+        // Wait for the worker to be inside `sleep 600` (and to have already
+        // POSTed `dispatch.started`) before issuing cancel.
+        await new Promise((r) => setTimeout(r, 3000));
+
+        await client.dispatch.cancel(dispatchId);
+        const result = await dispatchPromise;
+
+        // Sanity: the cancel path resolved as expected (same as the
+        // primary §7.6 case).
+        expect(result.failure?.reason).toBe('cancelled');
+
+        // The worker must have emitted a `dispatch.cancelled` lifecycle
+        // event tagged with this dispatchId. We look at the bodies of
+        // every captured POST and assert one has the canonical shape.
+        const parsed = received.map((p) => {
+          try {
+            return JSON.parse(p.body) as { kind?: string; dispatchId?: string };
+          } catch {
+            return {} as { kind?: string; dispatchId?: string };
+          }
+        });
+        const cancelledEvent = parsed.find(
+          (ev) => ev.kind === 'dispatch.cancelled' && ev.dispatchId === dispatchId,
+        );
+        expect(cancelledEvent).toBeDefined();
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
     },
     60_000,
   );
