@@ -3,8 +3,12 @@ import {
   isHelperDisabled,
 } from '../src/needs-input-helper.js';
 import { it, expect } from 'vitest';
+import { access } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SKILL_PATH = '.claude/skills/agora-needs-input/SKILL.md';
+const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 it('overlay returns a SKILL.md at the conventional path', async () => {
   const overlay = await getNeedsInputHelperOverlay();
@@ -49,4 +53,19 @@ it('isHelperDisabled returns false for non-"true" values', () => {
   expect(isHelperDisabled({ AGORA_DISABLE_NEEDS_INPUT_HELPER: 'false' })).toBe(
     false,
   );
+});
+
+// Regression test for DAG 2 follow-up: the build must copy `src/assets/` to
+// `dist/assets/` so that `getNeedsInputHelperOverlay()` can resolve its asset
+// at runtime in a published-package context (where __dirname points at
+// `dist/`, not `src/`). Without the asset-copy build step this file is
+// missing and the overlay helper throws ENOENT in consumers.
+it('dist/assets/needs-input-helper-skill.md exists after build', async () => {
+  const distAsset = join(
+    PKG_ROOT,
+    'dist',
+    'assets',
+    'needs-input-helper-skill.md',
+  );
+  await expect(access(distAsset)).resolves.toBeUndefined();
 });

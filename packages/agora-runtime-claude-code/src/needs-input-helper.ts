@@ -12,9 +12,9 @@ const SKILL_OVERLAY_PATH = '.claude/skills/agora-needs-input/SKILL.md';
 // `__dirname` is the built-in CJS module-scoped value. At dev time (vitest /
 // tsx) the source file lives at `src/needs-input-helper.ts`, so the asset is
 // resolved relative to that. After `tsc` build the compiled `.js` lives at
-// `dist/needs-input-helper.js`; consumers that bundle this module need to
-// arrange for the `assets/` sibling directory to be copied — see the task
-// note on package.json/asset-copy follow-up.
+// `dist/needs-input-helper.js`, and the `build` script in package.json copies
+// `src/assets/` to `dist/assets/` so this same resolution works for the
+// published package.
 export async function getNeedsInputHelperOverlay(): Promise<
   Record<string, Uint8Array>
 > {

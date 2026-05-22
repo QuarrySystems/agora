@@ -8,7 +8,7 @@
     "lint": "eslint src --ext .ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('node:fs').cpSync('src/assets', 'dist/assets', { recursive: true })\"",
     "clean": "rm -rf dist"
   },
   "dependencies": {
