@@ -43,6 +43,22 @@ the `:latest` tag works for local iteration. Production dispatches must
 always use a digest-pinned image per §7.4 — see the Fargate variant
 below.
 
+## Build the worker image
+
+Until the `agora-worker-image.yml` GitHub workflow has published a
+versioned image you can pin against, build it locally from the repo
+root:
+
+```sh
+docker build \
+  -t ghcr.io/quarry-systems/agora-worker:latest \
+  -f docker/agora-worker/Dockerfile \
+  .
+```
+
+Multi-stage build details and the runtime contract live in
+[`docker/agora-worker/Dockerfile`](../../docker/agora-worker/Dockerfile).
+
 ## Run it
 
 ```sh

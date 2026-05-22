@@ -97,8 +97,17 @@ export async function main(): Promise<void> {
     // this to succeed end-to-end. The placeholder `:latest` tag works
     // when you have built and tagged the worker locally; in production
     // (Fargate variant) this is always a digest-pinned reference.
+    //
+    // `capabilities: ['echo-cap']` is passed explicitly at dispatch time
+    // because the v0.1 dispatch path does not yet round-trip the
+    // capability set bound at register-time back to `CapabilityRef[]`
+    // (no hash→name index exists in the StorageProvider contract; see
+    // `readSubagentCapabilities` in agora-client). Once that drift is
+    // resolved, this field can be removed and the subagent's bound
+    // capability set will be used implicitly.
     const result = await client.dispatch({
       subagent: 'echo',
+      capabilities: ['echo-cap'],
       env: 'minimal',
       target: 'local',
       workerImage: 'ghcr.io/quarry-systems/agora-worker:latest',
