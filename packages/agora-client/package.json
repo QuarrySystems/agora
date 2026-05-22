@@ -15,5 +15,10 @@
     "@aws-sdk/client-secrets-manager": "^3.700.0",
     "@quarry-systems/agora-core": "workspace:*"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@quarry-systems/agora-providers-local-docker": "workspace:*",
+    "@quarry-systems/agora-storage-local": "workspace:*",
+    "@types/dockerode": "^3.3.30",
+    "dockerode": "^4.0.0"
+  }
 }
