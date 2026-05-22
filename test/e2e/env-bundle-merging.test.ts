@@ -13,21 +13,21 @@
 //
 // Setup:
 //   - register a capability whose `agora-setup.sh` echoes `LOG_LEVEL=$LOG_LEVEL`
-//     to stdout. That's our observable for the merge result.
+//     and `BASE_ONLY=$BASE_ONLY` to stdout. Those are our observables for
+//     the merge result.
 //   - register two env bundles:
 //       base:     { LOG_LEVEL: 'info',  BASE_ONLY: 'present' }
 //       override: { LOG_LEVEL: 'debug' }
 //   - dispatch with `env: ['base', 'override']` — `override` is second,
 //     so it should win on `LOG_LEVEL`.
 //
-// Assertion: stdout contains `LOG_LEVEL=debug`. If the merge order were
-// reversed (or only-last-bundle-applied), we'd see `info` or empty.
-//
-// `BASE_ONLY` is not asserted directly via stdout in this minimal shape
-// (the setup script only echoes LOG_LEVEL) — its preservation is implicit:
-// the contract under test is later-wins-on-conflict, which the LOG_LEVEL
-// assertion pins. A future expanded test can assert BASE_ONLY too once
-// the setup script grows.
+// Assertions:
+//   - stdout contains `LOG_LEVEL=debug` — later-wins on conflict. If the
+//     merge order were reversed (or only-last-bundle-applied), we'd see
+//     `info` or empty.
+//   - stdout contains `BASE_ONLY=present` — keys unique to the earlier
+//     bundle survive the merge (union, not swap). If the later bundle
+//     wholesale replaced the earlier one, we'd see empty.
 //
 // SKIP gracefully when the Docker daemon is unreachable — the assertion
 // only fires inside the daemon, so there's nothing to verify without it.
@@ -53,7 +53,8 @@ describe('E2E: multiple env bundles merge later-wins', () => {
       const cap = await client.capabilities.register({
         name: 'env-echo',
         files: {
-          'agora-setup.sh': '#!/bin/sh\necho "LOG_LEVEL=$LOG_LEVEL"\n',
+          'agora-setup.sh':
+            '#!/bin/sh\necho "LOG_LEVEL=$LOG_LEVEL"\necho "BASE_ONLY=$BASE_ONLY"\n',
         },
       });
 
@@ -83,6 +84,7 @@ describe('E2E: multiple env bundles merge later-wins', () => {
       // unique to `base` (e.g. BASE_ONLY) remain part of the worker's
       // process env.
       expect(result.stdout).toContain('LOG_LEVEL=debug');
+      expect(result.stdout).toContain('BASE_ONLY=present');
     },
     120_000,
   );
