@@ -11,13 +11,17 @@
 //     dispatches). The resulting ARN is recorded in the bundle; the inline
 //     value is NEVER written to storage (§7.1 paragraph 2).
 //   - ARN-form secrets (`{arn: ...}`) pass through unchanged.
-//   - The content hash covers `(values, secret-ARN refs)` — never the inline
-//     secret values themselves. This guarantees that re-issuing the same
-//     env bundle with a rotated inline secret value produces a different
-//     content hash iff the resulting ARN differs.
+//   - The content hash covers `(values, secret refs)` — never the inline
+//     secret values themselves. For ARN-form secrets the ref is the ARN
+//     itself; for inline secrets the ref is the DETERMINISTIC staged-secret
+//     NAME (`${namePrefix}/env-${opts.name}/${secretKey}`), NOT the AWS-
+//     returned ARN. Using the deterministic name keeps the hash stable
+//     across calls so the idempotency check fires BEFORE any AWS staging —
+//     otherwise the second call would crash with `ResourceExistsException`
+//     or get back a fresh ARN that breaks hash equality.
 //   - If the latest registration for this logical name already matches the
 //     computed content hash, the existing `EnvRef` is returned without
-//     issuing a duplicate put (idempotent).
+//     issuing a duplicate put AND without invoking the stager at all.
 
 import {
   buildAgoraUri,
@@ -67,6 +71,26 @@ function isSecretRef(v: SecretRef | InlineSecret): v is SecretRef {
 }
 
 /**
+ * Mirrors the `InlineSecretStager`'s default `namePrefix`. Kept in sync by
+ * convention — if the stager default ever changes, this must change too.
+ * Tests pin this against the same default.
+ */
+const INLINE_SECRET_NAME_PREFIX = 'agora/inline';
+
+/**
+ * Compute the deterministic staged-secret NAME used as the hash placeholder
+ * for an inline secret. Matches the name computed by
+ * `InlineSecretStager.stage` when called with `dispatchId = env-${envName}`.
+ *
+ * The hash uses this NAME (stable across calls) rather than the AWS-returned
+ * ARN (which would be fresh on every staging) so the idempotency check
+ * upstream can fire before any AWS Secrets Manager call is made.
+ */
+function inlineSecretPlaceholder(envBundleName: string, secretKey: string): string {
+  return `${INLINE_SECRET_NAME_PREFIX}/env-${envBundleName}/${secretKey}`;
+}
+
+/**
  * Register an environment bundle against the client's storage. Returns an
  * {@link EnvRef} pinning the registration's content hash.
  *
@@ -90,36 +114,29 @@ export async function registerEnv(
     });
   }
 
-  // 2. Resolve every secret to an ARN. Inline secrets are staged via the
-  //    InlineSecretStager (env-scoped — the disambiguator is the env name,
-  //    not a dispatch id, because env bundles are reused across dispatches).
-  //    ARN-form secrets pass through unchanged.
+  // 2. Build the *placeholder* secretRefs map — ARN-form secrets contribute
+  //    their real ARN; inline secrets contribute the deterministic staged-
+  //    secret NAME (NOT a real ARN yet). This map is what the content hash
+  //    is computed over. Using the deterministic name keeps the hash stable
+  //    across calls so the idempotency check below fires BEFORE we make
+  //    any AWS Secrets Manager call.
+  //
+  //    The contract: the hash is a function of (values + secret IDENTITY),
+  //    where "identity" is the ARN for arn-form refs and the deterministic
+  //    staged name for inline refs. Inline VALUES are never folded in —
+  //    see §7.1 paragraph 2.
   const secrets = opts.secrets ?? {};
   const secretRefs: Record<string, string> = {};
-  if (Object.keys(secrets).length > 0) {
-    const stager = opts.stager ?? new InlineSecretStager();
-    for (const [key, entry] of Object.entries(secrets)) {
-      if (isSecretRef(entry)) {
-        secretRefs[key] = entry.arn;
-      } else {
-        const { arn } = await stager.stage({
-          // Env-bundle secrets are not dispatch-scoped — use the env name
-          // as the disambiguator so the same inline value re-registered for
-          // the same env collapses to one stage call per registration.
-          dispatchId: `env-${opts.name}`,
-          envName: key,
-          inline: entry,
-          // Envs aren't dispatch-scoped; the stager's auto-TTL formula
-          // falls back to (7200 + 300) = 7500s per §7.6 until §7.6's
-          // explicit per-dispatch override is introduced elsewhere.
-        });
-        secretRefs[key] = arn;
-      }
+  const inlineSecretKeys: string[] = [];
+  for (const [key, entry] of Object.entries(secrets)) {
+    if (isSecretRef(entry)) {
+      secretRefs[key] = entry.arn;
+    } else {
+      secretRefs[key] = inlineSecretPlaceholder(opts.name, key);
+      inlineSecretKeys.push(key);
     }
   }
 
-  // 3. Compute the content hash over (values + secret ARN refs). Inline
-  //    secret VALUES are never folded in — see §7.1 paragraph 2.
   const def = {
     kind: 'env-bundle' as const,
     name: opts.name,
@@ -134,8 +151,12 @@ export async function registerEnv(
     name: opts.name,
   });
 
-  // 4. Idempotency check — if the latest registration already matches,
-  //    reuse its registeredAt and skip the storage write.
+  // 3. Idempotency check — if the latest registration already matches,
+  //    reuse its registeredAt and skip BOTH the storage write AND any
+  //    inline-secret staging. This is the load-bearing reordering: staging
+  //    before this check would crash on the second identical call
+  //    (`ResourceExistsException`) or hand back a fresh ARN that breaks
+  //    hash equality.
   const latest = await client.storage.resolveLatest(baseUri);
   if (latest && latest.contentHash === contentHash) {
     return {
@@ -145,7 +166,33 @@ export async function registerEnv(
     };
   }
 
-  // 5. Otherwise, write the bundle payload at the pinned URI.
+  // 4. Not idempotent — this is a fresh registration. Now (and only now)
+  //    stage the inline secrets to obtain real ARNs. The stored bundle
+  //    blob contains the real ARNs (so the runtime can mount them); only
+  //    the contentHash itself was computed from the placeholder names.
+  if (inlineSecretKeys.length > 0) {
+    const stager = opts.stager ?? new InlineSecretStager();
+    for (const key of inlineSecretKeys) {
+      const entry = secrets[key] as InlineSecret;
+      const { arn } = await stager.stage({
+        // Env-bundle secrets are not dispatch-scoped — use the env name
+        // as the disambiguator. This MUST stay aligned with
+        // `inlineSecretPlaceholder` so the stager's computed name matches
+        // the placeholder folded into the hash above.
+        dispatchId: `env-${opts.name}`,
+        envName: key,
+        inline: entry,
+        // Envs aren't dispatch-scoped; the stager's auto-TTL formula
+        // falls back to (7200 + 300) = 7500s per §7.6 until §7.6's
+        // explicit per-dispatch override is introduced elsewhere.
+      });
+      secretRefs[key] = arn;
+    }
+  }
+
+  // 5. Write the bundle payload at the pinned URI. The pinned URI uses
+  //    the placeholder-derived contentHash (stable across calls); the
+  //    blob body carries the real ARNs.
   const pinnedUri = buildAgoraUri({
     namespace: client.namespace,
     type: 'env',

@@ -295,4 +295,48 @@ describe('registerEnv', () => {
     expect(ref.name).toBe('empty');
     expect(ref.contentHash).toMatch(/^sha256:[0-9a-f]+$/);
   });
+
+  it('is idempotent for inline secrets — second identical call reuses bundle without re-staging', async () => {
+    // Regression: previously, inline secrets were staged BEFORE the
+    // idempotency check. With a real AWS Secrets Manager backing, the second
+    // CreateSecretCommand would either throw ResourceExistsException or
+    // return a different ARN — either way breaking the idempotency contract.
+    //
+    // The fix is to compute the lookup contentHash using a deterministic
+    // placeholder for inline secrets (the staged secret NAME, not the AWS
+    // ARN). The second identical call must short-circuit on idempotency
+    // BEFORE invoking the stager. The fake stager here returns a fresh
+    // ARN per call (counter-suffixed), exactly the failure mode the fix
+    // exists to defend against.
+    const storage = makeMemoryStorage();
+    const client = makeClient(storage);
+    const stager = makeFakeStager();
+
+    const first = await registerEnv(client, {
+      name: 'prod',
+      values: { LOG_LEVEL: 'info' },
+      secrets: { GH_TOKEN: { inline: 'super-secret-value' } },
+      stager: stager as unknown as InlineSecretStager,
+    });
+    const stageCallsAfterFirst = stager.calls.length;
+    const blobCountAfterFirst = storage.blobs.size;
+
+    const second = await registerEnv(client, {
+      name: 'prod',
+      values: { LOG_LEVEL: 'info' },
+      secrets: { GH_TOKEN: { inline: 'super-secret-value' } },
+      stager: stager as unknown as InlineSecretStager,
+    });
+
+    // Idempotency holds end-to-end.
+    expect(second.contentHash).toBe(first.contentHash);
+    expect(second.registeredAt).toBe(first.registeredAt);
+    expect(storage.blobs.size).toBe(blobCountAfterFirst);
+
+    // The stager was NOT called the second time — this is the load-bearing
+    // assertion. Re-staging on a second identical call would either crash
+    // (ResourceExistsException) or produce a fresh ARN that breaks the
+    // hash-equality contract.
+    expect(stager.calls.length).toBe(stageCallsAfterFirst);
+  });
 });
