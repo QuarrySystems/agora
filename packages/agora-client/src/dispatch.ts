@@ -208,53 +208,63 @@ export async function dispatchWork(
     resolved: resolvedCapabilities,
     at: new Date().toISOString(),
   });
-  const exit = await compute.awaitExit(handle, {
-    credentials,
-    telemetry: client.telemetry,
-  });
-  const durationMs = Date.now() - startTime;
 
-  // 8. ResultSink.collect — or fall back to a minimal DispatchResult.
-  const sink = client.resultSink;
-  const result: DispatchResult = sink
-    ? await sink.collect(handle, exit, {
-        dispatchId,
-        resolved: {
-          subagent: resolvedSubagent,
-          capabilities: resolvedCapabilities,
-          env: resolvedEnv,
-        },
-        telemetry: client.telemetry,
-      })
-    : {
-        dispatchId,
-        exitCode: exit.exitCode,
-        stdout: exit.stdout,
-        stderr: exit.stderr,
-        durationMs,
-        resolved: {
-          subagent: resolvedSubagent,
-          capabilities: resolvedCapabilities,
-          env: resolvedEnv,
-        },
-      };
+  // The awaitExit → sink → record-write trio is wrapped so the stager's
+  // per-dispatch cleanup runs whether or not awaitExit (or anything after
+  // it) throws. The stager's TTL tag is the fallback when cleanup itself
+  // fails; we always swallow cleanup errors so they never propagate over
+  // a successful (or already-failing) dispatch.
+  try {
+    const exit = await compute.awaitExit(handle, {
+      credentials,
+      telemetry: client.telemetry,
+    });
+    const durationMs = Date.now() - startTime;
 
-  // 9. Write the dispatch record (storage-side retention enforcement).
-  await writeDispatchRecord(
-    client,
-    dispatchId,
-    { ...result, providerTaskId: handle.providerTaskId, target: work.target },
-    work.retentionDays ?? client.retention.defaultDays,
-  );
+    // 8. ResultSink.collect — or fall back to a minimal DispatchResult.
+    const sink = client.resultSink;
+    const result: DispatchResult = sink
+      ? await sink.collect(handle, exit, {
+          dispatchId,
+          resolved: {
+            subagent: resolvedSubagent,
+            capabilities: resolvedCapabilities,
+            env: resolvedEnv,
+          },
+          telemetry: client.telemetry,
+        })
+      : {
+          dispatchId,
+          exitCode: exit.exitCode,
+          stdout: exit.stdout,
+          stderr: exit.stderr,
+          durationMs,
+          resolved: {
+            subagent: resolvedSubagent,
+            capabilities: resolvedCapabilities,
+            env: resolvedEnv,
+          },
+        };
 
-  // 10. Best-effort cleanup of per-dispatch staged secrets. The stager's
-  //     TTL tag is the fallback when this fails (e.g. partial AWS outage);
-  //     swallow errors here rather than propagate.
-  stager.cleanup(dispatchId).catch(() => {
-    // intentionally suppressed — see above.
-  });
+    // 9. Write the dispatch record (storage-side retention enforcement).
+    await writeDispatchRecord(
+      client,
+      dispatchId,
+      { ...result, providerTaskId: handle.providerTaskId, target: work.target },
+      work.retentionDays ?? client.retention.defaultDays,
+    );
 
-  return result;
+    return result;
+  } finally {
+    // 10. Best-effort cleanup of per-dispatch staged secrets. Runs on both
+    //     the success and exception paths so staged secrets are never
+    //     orphaned past their use. The .catch() preserves the
+    //     "never throw from cleanup" contract — failures fall back to the
+    //     stager's TTL tag.
+    stager.cleanup(dispatchId).catch(() => {
+      // intentionally suppressed — see above.
+    });
+  }
 }
 
 /** Type guard for the `SecretRef | InlineSecret` discriminated union. */

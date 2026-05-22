@@ -686,6 +686,49 @@ describe('dispatchWork — provider + telemetry + sink + record', () => {
     expect(cleanupSpy).toHaveBeenCalledWith(result.dispatchId);
   });
 
+  it('cleans up per-dispatch staged secrets even when awaitExit throws', async () => {
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    // Compute provider whose awaitExit throws — simulates a provider-side
+    // failure between run() and exit. The cleanup of per-dispatch staged
+    // secrets must still happen (best-effort, never propagate).
+    const throwingCompute: ComputeProvider = {
+      name: 'throwing-compute',
+      async run(_spec, _ctx): Promise<TaskHandle> {
+        return { providerTaskId: 'prov-throws' };
+      },
+      async awaitExit(_handle, _ctx): Promise<TaskExit> {
+        throw new Error('awaitExit failed');
+      },
+    };
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: throwingCompute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const cleanupSpy = secretsManager.InlineSecretStager.prototype
+      .cleanup as unknown as ReturnType<typeof vi.fn>;
+
+    await expect(
+      dispatchWork(
+        client,
+        {
+          subagent: 's',
+          target: 'prod',
+          dispatchId: 'cleanup-on-throw-id',
+          secrets: { TOKEN: { inline: 'x' } },
+        },
+        { workerImage: WORKER_IMAGE },
+      ),
+    ).rejects.toThrow(/awaitExit failed/);
+
+    // cleanup is best-effort; allow microtask flush
+    await new Promise((r) => setImmediate(r));
+    expect(cleanupSpy).toHaveBeenCalledWith('cleanup-on-throw-id');
+  });
+
   it('honors work.retentionDays in the written record', async () => {
     const storage = makeMemoryStorage();
     storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
