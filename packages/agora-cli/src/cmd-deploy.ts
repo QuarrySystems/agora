@@ -68,6 +68,7 @@ export function attachDeployCmd(program: Command, ctx: CliContext): void {
           // parseManifest validates the SecretRef | InlineSecret discrimination;
           // cast through `any` because the SDK's secret types live in agora-core
           // and we deliberately avoid that import in agora-cli.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           secrets: env.secrets as any,
         });
         console.log(`env ${ref.name}\t${ref.contentHash}`);
