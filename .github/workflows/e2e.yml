@@ -4,11 +4,12 @@ name: e2e
 # workspace package and is therefore not covered by the `ci` workflow's
 # `pnpm -r test`.
 #
-# ubuntu-latest ships a working Docker daemon, so the container-backed suites
-# (local-docker happy path, file-editing git-push, etc.) run for real against
-# the digest-pinned `ghcr.io/quarrysystems/agora-worker` image — they
-# self-skip only when no daemon answers (see test/e2e/helpers/docker-skip.ts).
-# The live-AWS suite stays gated behind its AGORA_E2E_AWS_* env vars.
+# This job runs the logic/contract suites (credential rejection, content-hash
+# versioning, manifest deploy, MCP tool surface, monorepo bootstrap, the
+# in-process runtime-adapter seam). The container-backed suites are gated
+# behind `AGORA_E2E_DOCKER=1` (not set here) because they need the pinned
+# worker image pulled + a runtime — run those on a dedicated runner. The
+# live-AWS suite stays gated behind its AGORA_E2E_AWS_* env vars.
 
 on:
   pull_request:
@@ -54,12 +55,6 @@ jobs:
       # name, resolving to built dist/; build the workspace first.
       - name: Build
         run: pnpm -r build
-
-      # Authenticate to GHCR so the container suites can pull the pinned
-      # worker image. GITHUB_TOKEN is sufficient for same-org packages;
-      # harmless for a public image.
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: E2E
         run: pnpm test:e2e
