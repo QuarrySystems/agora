@@ -44,8 +44,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build agora-mcp
-        run: pnpm -F @quarry-systems/agora-mcp build
+      # Build workspace deps first: agora-mcp imports @quarry-systems/agora-client,
+      # resolved via its emitted dist/index.d.ts, so deps must be built before tsc.
+      - name: Build
+        run: pnpm -r build
 
       - name: Check MCP tool allowlist
         run: node scripts/check-mcp-tool-allowlist.mjs
