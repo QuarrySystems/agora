@@ -12,6 +12,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@quarry-systems/agora-client": "workspace:*",
     "@quarry-systems/agora-core": "workspace:*",
     "better-sqlite3": "^11.0.0"
   },

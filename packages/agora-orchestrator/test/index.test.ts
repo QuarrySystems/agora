@@ -8,6 +8,7 @@ import {
   selectRunnable,
   tick,
   RUN_STATUSES,
+  DispatchExecutor,
 } from '../src/index.js';
 
 describe('barrel smoke test', () => {
@@ -37,5 +38,9 @@ describe('barrel smoke test', () => {
 
   it('RUN_STATUSES is an array', () => {
     expect(Array.isArray(RUN_STATUSES)).toBe(true);
+  });
+
+  it('DispatchExecutor is a function (class)', () => {
+    expect(typeof DispatchExecutor).toBe('function');
   });
 });
