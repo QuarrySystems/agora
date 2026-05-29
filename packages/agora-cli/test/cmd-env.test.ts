@@ -1,6 +1,22 @@
-import { attachEnvCmd } from '../src/cmd-env.js';
+import { attachEnvCmd, parseSecretArg } from '../src/cmd-env.js';
 import { Command } from 'commander';
 import { it, expect, describe, vi, afterEach } from 'vitest';
+
+describe('parseSecretArg', () => {
+  it('treats arn: and local-secret:// values as opaque refs, others as inline', () => {
+    expect(parseSecretArg('K=arn:aws:...:x')).toEqual({ K: { ref: 'arn:aws:...:x' } });
+    expect(parseSecretArg('K=local-secret://abc')).toEqual({ K: { ref: 'local-secret://abc' } });
+    expect(parseSecretArg('K=plaintext')).toEqual({ K: { inline: 'plaintext' } });
+  });
+
+  it('handles values with = signs correctly', () => {
+    expect(parseSecretArg('K=inline:val=with=equals')).toEqual({ K: { inline: 'val=with=equals' } });
+  });
+
+  it('treats inline: prefix as inline value (strips prefix)', () => {
+    expect(parseSecretArg('K=inline:mysecretvalue')).toEqual({ K: { inline: 'mysecretvalue' } });
+  });
+});
 
 describe('attachEnvCmd', () => {
   afterEach(() => {
@@ -49,7 +65,7 @@ describe('attachEnvCmd', () => {
     );
   });
 
-  it('register command accepts repeated --secret flags with arn: prefix', async () => {
+  it('register command accepts repeated --secret flags with arn: prefix → { ref }', async () => {
     const mockRegister = vi.fn().mockResolvedValue({
       name: 'myenv',
       contentHash: 'sha256:abc123',
@@ -77,7 +93,45 @@ describe('attachEnvCmd', () => {
         name: 'myenv',
         secrets: {
           DB_PASS: {
-            arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:mydb-pass',
+            ref: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:mydb-pass',
+          },
+        },
+      })
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('myenv')
+    );
+  });
+
+  it('register command accepts repeated --secret flags with local-secret:// prefix → { ref }', async () => {
+    const mockRegister = vi.fn().mockResolvedValue({
+      name: 'myenv',
+      contentHash: 'sha256:abc123',
+      registeredAt: '2026-05-21T00:00:00Z',
+    });
+    const mockClient = {
+      env: {
+        register: mockRegister,
+      },
+    };
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const program = new Command();
+    attachEnvCmd(program, { getClient: async () => mockClient as any });
+
+    await program.parseAsync([
+      'node', 'agora',
+      'env', 'register',
+      '--name', 'myenv',
+      '--secret', 'MY_SECRET=local-secret://my-local-key',
+    ]);
+
+    expect(mockRegister).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'myenv',
+        secrets: {
+          MY_SECRET: {
+            ref: 'local-secret://my-local-key',
           },
         },
       })
@@ -293,7 +347,7 @@ describe('attachEnvCmd', () => {
         name: 'myenv',
         values: { LOG_LEVEL: 'debug' },
         secrets: {
-          DB_PASS: { arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:mydb' },
+          DB_PASS: { ref: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:mydb' },
           API_KEY: { inline: 'secret123' },
         },
       })
