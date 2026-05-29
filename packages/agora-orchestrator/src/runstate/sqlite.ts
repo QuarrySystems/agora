@@ -67,8 +67,8 @@ export class SqliteRunStateStore implements RunStateStore {
 
   getItems(runId?: string): ItemState[] {
     const rows = runId
-      ? this.db.prepare('SELECT * FROM items WHERE run_id=?').all(runId)
-      : this.db.prepare('SELECT * FROM items').all();
+      ? this.db.prepare('SELECT * FROM items WHERE run_id=? ORDER BY rowid').all(runId)
+      : this.db.prepare('SELECT * FROM items ORDER BY rowid').all();
     return (rows as any[]).map(this.rowToItem);
   }
 
