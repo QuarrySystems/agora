@@ -67,19 +67,33 @@ locks fan out, overlapping locks serialize) lets multiple agents edit one
 codebase without clobbering each other. Autonomy (agents that open and merge
 their own PRs) is V1.1 and is *additive*, not a prerequisite.
 
+**The engine is executor-agnostic; AI is the flagship executor, not the engine
+(V1-D4).** The `Executor` contract (`fire`/`reconcile`) and everything above it —
+queues, deps, locks, run-state, retry, and the entire §6 audit/manifest layer —
+have nothing AI-specific in them. The edge (isolation + determinism + tamper-
+evident audit) applies to *any* unit of work: a shell job, a batch call, a human
+approval. That is a strength — it widens the market the *same pitch* serves
+("secure, auditable execution for every unit of work — AI-native, not AI-only")
+and lets the determinism claim sharpen per executor (§6.1). **V1 ships exactly one
+executor (AI dispatch)**; the value V1 captures from this is *architectural*:
+keep the engine, audit format, and operations API executor-agnostic so the second
+executor (likely a sandboxed `command`/shell job) is purely additive. Building it
+waits for a real task (orchestrator spec §11 discipline; §1.3 here).
+
 **Honesty constraint (brand-protecting).** SOC2 is an org attestation; HIPAA is a
 regime for covered entities. Software is never itself "certified." Agora ships the
 **technical controls and audit evidence** that make a customer's program
 achievable. This spec, the README, and all copy say **"compliance-ready"** —
 never "compliant," "certified," or "reproducible AI output." See §6.
 
-### 0.2 The two scoping decisions
+### 0.2 The scoping decisions
 
 | # | Decision | Resolution |
 |---|---|---|
 | **V1-D1** | Scope depth | **Lean runner + patch escape.** Build the engine surface (serve, submission transport, retry, operator CLI/MCP) plus a *minimal* sandbox-escape (a patch artifact). Defer the typed-output→`Intent`→`IntentInterpreter`→`open-pr`→`approve` pipeline, the `dev` pack, cost budgets, and effect-tier enforcement to **V1.1**. The deferred layer is a strict superset of what V1 ships, so it accretes without refactor. |
 | **V1-D2** | License | **Business Source License 1.1 (`BUSL-1.1`).** Whole offload stack is source-available and self-hostable; the Additional Use Grant permits all use **except offering Agora as a hosted/managed orchestration service.** Change Date = **4 years** from first publish; Change License = **Apache-2.0**. No architectural cost — the §10.6 `client`/`service` privilege split already marks the commercial boundary (the future hosted multi-tenant control plane is the `service` side). Self-host is also the **compliance model** (§6.7): regulated data never leaves the customer's account. |
 | **V1-D3** | Compliance edge | **Folded into V1, not fast-followed.** The technical controls that constitute the edge — signed dispatch manifest, tamper-evident hash-chained audit log, actor identity on every operation, `agora orch audit` evidence export, and encryption-at-rest by default — are **V1 acceptance gates** (§6). Deferred: certification/process, BYOK-KMS, full role-based RBAC, hosted-V2 BAAs, the Bedrock runtime adapter. The claim is **"compliance-ready,"** never "compliant/certified" (§6.1). |
+| **V1-D4** | Executor scope | **Executor-agnostic engine, AI flagship, one executor in V1.** The engine, audit format, and operations API carry nothing AI-specific. V1 builds *only* the AI `DispatchExecutor`, but the **dispatch manifest is executor-polymorphic** (§6.2) and copy positions Agora as an execution engine, not an AI tool. Additional executors (`command`/shell, batch, http, human-approval) are additive branches pulled by real tasks (§1.3). Rationale: positioning is free and the manifest schema is expensive to migrate once signed history exists — so lock the shape now, build the breadth later. |
 
 ---
 
@@ -202,6 +216,12 @@ agora-worker (existing pkg)
 operations API (the §10.2 consolidation principle) — no business logic in the
 surfaces. Registries remain construction-time `Record<string, Impl>` maps (D8).
 
+**Executor-agnostic guardrail (V1-D4):** nothing in `engine/`, `audit/`,
+`runstate/`, or `operations-api.ts` may reference AI/dispatch concepts — those
+live only in `executors/dispatch.ts` and the manifest's `executorManifest` block.
+The engine sees `WorkItem.executor` (a string) and `inputs` (opaque); the audit
+layer sees an opaque `executorManifest`. This is what makes executor #2 additive.
+
 ---
 
 ## 3. Sandbox escape — the one net-new worker mechanism
@@ -295,38 +315,57 @@ itself "certified/compliant"; copy says **"compliance-ready."**
 > **Deterministic, content-addressed execution *environment and inputs*; a
 > complete, tamper-evident *record* of what ran and what it produced.**
 
-LLM output is non-deterministic; V1 makes **no** claim that agent results are
-reproducible. It guarantees the *setup* is reproducible (by hash) and the
-*result* is recorded. Marketing copy MUST NOT imply reproducible AI output. This
-caveat is a brand asset, not a weakness — a security buyer trusts the vendor who
-states the bound.
+The guarantee is **per-executor**, and saying so precisely is the credible
+version of the claim:
+
+- **Deterministic executors** (a pinned container running a pinned command over
+  content-addressed inputs — the future `command` executor): output *is*
+  reproducible. Same manifest → same result, bit for bit.
+- **AI executor (V1):** LLM output is non-deterministic. V1 makes **no** claim
+  that agent results are reproducible — it guarantees the *environment and inputs*
+  are reproducible (by hash) and the *result* is completely recorded.
+
+Marketing copy MUST NOT imply reproducible AI output. Stating the bound — strong
+where earned, honest where not — is a brand asset, not a weakness; a security
+buyer trusts the vendor who draws the line. The audit framework (§6.2–6.3) spans
+both cases unchanged.
 
 ### 6.2 Dispatch manifest — "exactly what ran"
 
-Every fired WorkItem produces a content-addressed, signed **manifest**:
+Every fired WorkItem produces a content-addressed, signed **manifest**. The
+envelope is executor-agnostic; the executor-specific detail nests in one
+content-hashed `executorManifest` block (V1-D4) so a second executor never forces
+an audit-format migration:
 
 ```jsonc
 {
   "schemaVersion": 1,
   "runId": "...", "itemId": "...", "parent": "run:...",
-  "subagent":     { "name": "...", "contentHash": "sha256:..." },
-  "capabilities": [{ "name": "...", "contentHash": "sha256:..." }],
-  "env":          { "name": "...", "contentHash": "sha256:..." },
-  "workerImage":  "ghcr.io/quarrysystems/agora-worker@sha256:...",  // digest, not tag
-  "model":        { "id": "claude-...", "temperature": 0, "maxTokens": 0 },
-  "secretRefs":   ["agora://secrets/..."],   // REFERENCES ONLY — never values
-  "actor":        "human:brett | agent:<id>",
-  "submittedAt":  "ISO-8601", "firedAt": "ISO-8601",
-  "manifestHash": "sha256:...",              // self-hash over the above
-  "signature":    "..."                      // present when a signing key is configured
+  "executor":   "dispatch",                  // which executor kind ran this
+  "executorManifest": {                      // executor-defined, content-hashed
+    // dispatch (AI) fills:
+    "subagent":     { "name": "...", "contentHash": "sha256:..." },
+    "capabilities": [{ "name": "...", "contentHash": "sha256:..." }],
+    "env":          { "name": "...", "contentHash": "sha256:..." },
+    "workerImage":  "ghcr.io/quarrysystems/agora-worker@sha256:...",  // digest, not tag
+    "model":        { "id": "claude-...", "temperature": 0, "maxTokens": 0 }
+    // a future `command` executor would instead fill { image, argvHash, commandRef }
+  },
+  "secretRefs": ["agora://secrets/..."],     // REFERENCES ONLY — never values (all executors)
+  "actor":      "human:brett | agent:<id>",
+  "submittedAt":"ISO-8601", "firedAt": "ISO-8601",
+  "manifestHash":"sha256:...",               // self-hash over the above
+  "signature":  "..."                        // present when a signing key is configured
 }
 ```
 
-Most fields already exist in the "resolved" block emitted today (the
-content-addressed `subagent`/`capabilities`/`env` hashes, the digest-pinned
-worker image). V1 formalizes them into one persisted, hashed record and adds
-model params + actor + timestamps. Two runs of the same manifest had identical
-inputs and environment, *by hash* — that is the determinism artifact.
+The dispatch `executorManifest` fields already exist in the "resolved" block
+emitted today (content-addressed `subagent`/`capabilities`/`env` hashes, the
+digest-pinned worker image). V1 formalizes them into one persisted, hashed record
+and adds model params + actor + timestamps. Two runs of the same manifest had
+identical inputs and environment, *by hash* — that is the determinism artifact.
+The envelope (`secretRefs`, `actor`, hashing, signing, chain linkage) is shared
+across all executor kinds.
 
 **Secret discipline (load-bearing):** the manifest records secret *refs*, never
 values — the firewall that keeps secrets out of the agent's context also keeps
@@ -491,6 +530,9 @@ shipped artifacts.
   and SQLite→networked-DB remain additive swaps.
 - No deferred-layer (Intent/interpreter/pack/budget/cron/RBAC/BYOK) code leaks
   into V1 — contracts may exist; implementations do not.
+- **Executor-agnostic (V1-D4):** grep `engine/`, `audit/`, `runstate/`,
+  `operations-api.ts` for `subagent`/`model`/`dispatch`/`claude` — any hit is a
+  leak. The manifest envelope and audit chain must not know which executor ran.
 - All public copy says **"compliance-ready"** and **never** "compliant,"
   "certified," or "reproducible AI output" (§6.1).
 
