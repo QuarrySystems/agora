@@ -1,20 +1,34 @@
-import { attachEnvCmd, parseSecretArg } from '../src/cmd-env.js';
+import { attachEnvCmd, parseSecretArg, SecretArgParseError } from '../src/cmd-env.js';
 import { Command } from 'commander';
 import { it, expect, describe, vi, afterEach } from 'vitest';
 
 describe('parseSecretArg', () => {
-  it('treats arn: and local-secret:// values as opaque refs, others as inline', () => {
+  // Contract: arn:* and local-secret://* → { ref }; inline:* → { inline } (prefix stripped);
+  // anything else (bare value or unrecognised prefix) → throws SecretArgParseError.
+
+  it('arn: prefix → { ref }', () => {
     expect(parseSecretArg('K=arn:aws:...:x')).toEqual({ K: { ref: 'arn:aws:...:x' } });
+  });
+
+  it('local-secret:// prefix → { ref }', () => {
     expect(parseSecretArg('K=local-secret://abc')).toEqual({ K: { ref: 'local-secret://abc' } });
-    expect(parseSecretArg('K=plaintext')).toEqual({ K: { inline: 'plaintext' } });
+  });
+
+  it('inline: prefix → { inline } (strips prefix)', () => {
+    expect(parseSecretArg('K=inline:mysecretvalue')).toEqual({ K: { inline: 'mysecretvalue' } });
   });
 
   it('handles values with = signs correctly', () => {
     expect(parseSecretArg('K=inline:val=with=equals')).toEqual({ K: { inline: 'val=with=equals' } });
   });
 
-  it('treats inline: prefix as inline value (strips prefix)', () => {
-    expect(parseSecretArg('K=inline:mysecretvalue')).toEqual({ K: { inline: 'mysecretvalue' } });
+  it('bare value (no recognised prefix) → throws SecretArgParseError', () => {
+    expect(() => parseSecretArg('K=plaintext')).toThrow(SecretArgParseError);
+  });
+
+  it('unrecognised prefix → throws SecretArgParseError with key name in message', () => {
+    expect(() => parseSecretArg('BADSECRET=badprefix:value')).toThrow(SecretArgParseError);
+    expect(() => parseSecretArg('BADSECRET=badprefix:value')).toThrow('BADSECRET');
   });
 });
 
