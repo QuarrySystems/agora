@@ -1,4 +1,4 @@
-import type { ItemState, Run, RunStatus, TerminalStatus } from './types.js';
+import type { ItemState, Run, TerminalStatus } from './types.js';
 
 /**
  * Mutable run-state persistence (D2 split-store). The orchestrator service is the

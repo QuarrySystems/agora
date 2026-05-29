@@ -6,7 +6,20 @@
 // separate processes are unsupported and will corrupt run-state.
 //
 import Database from 'better-sqlite3';
-import type { ItemState, Run, RunStateStore, TerminalStatus } from '../contracts/index.js';
+import type { ItemState, Run, RunStateStore, RunStatus, TerminalStatus } from '../contracts/index.js';
+
+/** Shape of a row in the `items` table (column names are snake_case). */
+interface ItemRow {
+  id: string;
+  run_id: string;
+  queue: string;
+  executor: string;
+  inputs: string;
+  depends_on: string;
+  resource_locks: string;
+  status: RunStatus;
+  dispatch_hash: string | null;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS queues (name TEXT PRIMARY KEY, concurrency INTEGER NOT NULL);
@@ -66,29 +79,32 @@ export class SqliteRunStateStore implements RunStateStore {
   }
 
   getItems(runId?: string): ItemState[] {
-    const rows = runId
-      ? this.db.prepare('SELECT * FROM items WHERE run_id=? ORDER BY rowid').all(runId)
-      : this.db.prepare('SELECT * FROM items ORDER BY rowid').all();
-    return (rows as any[]).map(this.rowToItem);
+    const rows = (
+      runId
+        ? this.db.prepare('SELECT * FROM items WHERE run_id=? ORDER BY rowid').all(runId)
+        : this.db.prepare('SELECT * FROM items ORDER BY rowid').all()
+    ) as ItemRow[];
+    return rows.map(this.rowToItem);
   }
 
   runningCount(queue: string): number {
     return (
       this.db
         .prepare("SELECT COUNT(*) c FROM items WHERE queue=? AND status='running'")
-        .get(queue) as any
+        .get(queue) as { c: number }
     ).c;
   }
 
   queueConcurrency(queue: string): number {
     return (
-      (this.db.prepare('SELECT concurrency FROM queues WHERE name=?').get(queue) as any)
-        ?.concurrency ?? 0
+      (this.db.prepare('SELECT concurrency FROM queues WHERE name=?').get(queue) as
+        | { concurrency: number }
+        | undefined)?.concurrency ?? 0
     );
   }
 
   heldLockKeys(): string[] {
-    return (this.db.prepare('SELECT key FROM locks').all() as any[]).map((r) => r.key);
+    return (this.db.prepare('SELECT key FROM locks').all() as { key: string }[]).map((r) => r.key);
   }
 
   acquireLocks(itemId: string, keys: string[]): boolean {
@@ -113,7 +129,7 @@ export class SqliteRunStateStore implements RunStateStore {
     this.db.close();
   }
 
-  private rowToItem = (r: any): ItemState => ({
+  private rowToItem = (r: ItemRow): ItemState => ({
     id: r.id,
     runId: r.run_id,
     queue: r.queue,
