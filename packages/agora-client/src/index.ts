@@ -65,7 +65,9 @@ export {
 
 // ── Dispatch ───────────────────────────────────────────────────────────────
 export {
+  fireWork,
   dispatchWork,
+  type InFlightDispatch,
   type ClientDispatchOpts,
 } from './dispatch.js';
 
