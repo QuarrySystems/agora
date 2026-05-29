@@ -4,8 +4,9 @@ A registry-backed dispatch SDK for sub-agent compute workloads. Integrators
 register **capabilities**, **subagents**, and **env bundles** once at deploy
 time, then **dispatch** against them at run time — the same code path
 running locally against Docker as in production against Fargate + S3.
-Provider seams (compute, credentials, storage, channel, result sink) keep
-the registry shape and dispatch contract identical across environments.
+Provider seams (compute, credentials, storage, secret store, channel,
+result sink) keep the registry shape and dispatch contract identical
+across environments.
 
 ## Install
 
@@ -48,7 +49,7 @@ Fargate + S3 production variant) lives at
 
 ## What's in this repo
 
-Eleven packages under `packages/`:
+Thirteen packages under `packages/`:
 
 | Package | One-liner |
 |---|---|
@@ -63,6 +64,8 @@ Eleven packages under `packages/`:
 | [`agora-providers-aws-creds`](packages/agora-providers-aws-creds/) | `CredentialProvider` wrapping the AWS SDK default credential chain. Lazy resolution, no extra caching. |
 | [`agora-storage-s3`](packages/agora-storage-s3/) | `StorageProvider` backed by S3. Content-addressed object layout, integrity-verified on read. Production target. |
 | [`agora-storage-local`](packages/agora-storage-local/) | `StorageProvider` backed by the local filesystem. Pairs with `agora-providers-local-docker` for the local stack. |
+| [`agora-secret-store`](packages/agora-secret-store/) | `SecretStore` seam plus impls — `InlineSecretStager` (AWS Secrets Manager) and `LocalSecretStore` (on-disk staging). `agora-client` auto-selects local vs AWS by storage backend when staging per-dispatch inline secrets. |
+| [`agora-orchestrator`](packages/agora-orchestrator/) | Orchestrator-engine skeleton (codename *agora-offload*): named queues, `depends_on` resolution, resource locks, a fire-and-reconcile tick loop, and SQLite run-state, behind pluggable `Executor` / `Trigger` seams. Early-stage substrate for unattended multi-dispatch — not yet a primary entry point. |
 
 Plus:
 
@@ -121,8 +124,11 @@ graph TD
   pawscreds[agora-providers-aws-creds]
   ss3[agora-storage-s3]
   slocal[agora-storage-local]
+  secretstore[agora-secret-store]
+  orch[agora-orchestrator<br/><i>engine skeleton</i>]
 
   client --> core
+  client --> secretstore
   cli --> client
   mcp --> client
   worker --> core
@@ -132,6 +138,8 @@ graph TD
   pawscreds --> core
   ss3 --> core
   slocal --> core
+  secretstore --> core
+  orch --> core
 ```
 
 ASCII rendering of the same graph:
@@ -149,7 +157,9 @@ agora-core                              (types only)
    ├── agora-providers-local-docker     (ComputeProvider, local Docker)
    ├── agora-providers-aws-creds        (CredentialProvider, AWS)
    ├── agora-storage-s3                 (StorageProvider, S3)
-   └── agora-storage-local              (StorageProvider, local FS)
+   ├── agora-storage-local              (StorageProvider, local FS)
+   ├── agora-secret-store               (SecretStore seam: Inline/AWS + Local; agora-client also depends on it)
+   └── agora-orchestrator               (orchestrator engine skeleton — agora-offload)
 ```
 
 No agora package depends on another Quarry Systems library (Stoa,
@@ -159,6 +169,7 @@ check on `package.json` dependencies.
 ## Documentation
 
 - [Full MVP design spec](docs/superpowers/specs/2026-05-21-agora-mvp-design.md) — the §1–§11 design canon.
+- [Orchestrator architecture spec](docs/superpowers/specs/2026-05-28-agora-orchestrator-design.md) — the *agora-offload* design: registries, effect tiers, queues/deps/locks, the intent outbox, and the trunk trap-check driving the `agora-orchestrator` package.
 - [Architecture decisions](docs/decisions/) — sixteen ADRs covering
   package scope, repo location, runtime-adapter seam, secret TTL,
   lifecycle vocabulary, MCP auth model, and more.
