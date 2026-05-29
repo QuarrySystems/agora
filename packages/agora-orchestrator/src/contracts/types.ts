@@ -1,6 +1,9 @@
 export const RUN_STATUSES = ['pending', 'ready', 'running', 'done', 'failed', 'skipped'] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+/** The subset of RunStatus an item can hold once it stops moving. */
+export type TerminalStatus = 'done' | 'failed' | 'skipped';
+
 export type EffectTier = 'pure' | 'read-impure' | 'write-impure';
 
 /** A single dispatchable unit (skeleton shape — packs/effect-policy/budget deferred). */
@@ -33,6 +36,6 @@ export interface ItemState extends WorkItem {
 /** Terminal-ish result for one item (skeleton — intents/signals/audit deferred). */
 export interface WorkItemResult {
   itemId: string;
-  status: RunStatus;
+  status: TerminalStatus;
   output?: unknown;
 }

@@ -1,4 +1,4 @@
-import type { ItemState, Run, RunStatus } from './types.js';
+import type { ItemState, Run, RunStatus, TerminalStatus } from './types.js';
 
 /**
  * Mutable run-state persistence (D2 split-store). The orchestrator service is the
@@ -9,7 +9,7 @@ export interface RunStateStore {
   saveRun(run: Run): void;
   markReady(itemIds: string[]): void;
   setRunning(itemId: string, dispatchHash: string): void;
-  setStatus(itemId: string, status: RunStatus): void;
+  setStatus(itemId: string, status: TerminalStatus): void;
   getItems(runId?: string): ItemState[];
   runningCount(queue: string): number;
   queueConcurrency(queue: string): number;
