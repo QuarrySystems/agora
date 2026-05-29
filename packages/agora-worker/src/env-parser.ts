@@ -117,9 +117,14 @@ export function parseWorkerEnv(
 
   const secretStoreDir = env.AGORA_SECRET_STORE_DIR || undefined;
 
-  const secretStoreKind =
-    (env.AGORA_SECRET_STORE_KIND as WorkerConfig["secretStoreKind"]) ??
-    "aws-secrets-manager";
+  const VALID_SECRET_STORE_KINDS = ["aws-secrets-manager", "local-file"] as const;
+  const rawKind = env.AGORA_SECRET_STORE_KIND ?? "aws-secrets-manager";
+  if (!(VALID_SECRET_STORE_KINDS as readonly string[]).includes(rawKind)) {
+    throw new Error(
+      `agora-worker: AGORA_SECRET_STORE_KIND must be one of ${VALID_SECRET_STORE_KINDS.join(", ")}, got: ${rawKind}`,
+    );
+  }
+  const secretStoreKind = rawKind as WorkerConfig["secretStoreKind"];
 
   const callbackUrl = env.AGORA_CALLBACK_URL;
   const callbackTokenRef = env.AGORA_CALLBACK_TOKEN_REF;
