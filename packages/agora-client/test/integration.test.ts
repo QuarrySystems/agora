@@ -363,17 +363,21 @@ describe('agora-client integration — register side (no Docker required)', () =
       // Two env bundles. Both define DB_PASS; only the later one wins. The
       // earlier one also contributes a unique LOG_REGION key, which must
       // survive the merge unchanged.
+      //
+      // Use ref-form secrets (`{ ref: '...' }`) — pre-registered opaque refs
+      // that pass through unchanged without staging. No SecretStore or AWS
+      // Secrets Manager calls are made for ref-form entries (§7.1).
       await client.env.register({
         name: 'env-base',
         secrets: {
-          DB_PASS: { arn: 'arn:base:dbpass' },
-          LOG_REGION: { arn: 'arn:base:region' },
+          DB_PASS: { ref: 'arn:base:dbpass' },
+          LOG_REGION: { ref: 'arn:base:region' },
         },
       });
       await client.env.register({
         name: 'env-override',
         secrets: {
-          DB_PASS: { arn: 'arn:override:dbpass' },
+          DB_PASS: { ref: 'arn:override:dbpass' },
         },
       });
 
