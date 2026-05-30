@@ -31,7 +31,7 @@
 // environments skip cleanly.
 
 import { describe, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -137,25 +137,33 @@ describe('E2E: local env-bundle inline secret resolved end-to-end with no AWS', 
       //   5. Register SECRET with StructuredLogger.registerSecret()
       //   6. Run the capability setup script which echoes DEPLOY_TOKEN=$SECRET
       //   7. §6.7: all occurrences of SECRET in worker stdout → <redacted:secret>
-      const result = await client.dispatch({
-        subagent: 'noop',
-        env: 'deploy',
-        target: 'local',
-        workerImage: WORKER_IMAGE,
-      } as any);
+      try {
+        const result = await client.dispatch({
+          subagent: 'noop',
+          env: 'deploy',
+          target: 'local',
+          workerImage: WORKER_IMAGE,
+        } as any);
 
-      // The per-dispatch inline-secret path is NOT exercised here (no
-      // `work.secrets`), so the host-side store's stage() must not be
-      // called again by dispatch.
-      expect(stageSpy).not.toHaveBeenCalled();
+        // The per-dispatch inline-secret path is NOT exercised here (no
+        // `work.secrets`), so the host-side store's stage() must not be
+        // called again by dispatch.
+        expect(stageSpy).not.toHaveBeenCalled();
 
-      // §6.7: the resolved literal secret MUST NOT appear in DispatchResult.stdout.
-      // If this fails, the worker did not register the value for redaction.
-      expect(result.stdout).not.toContain(SECRET);
+        // §6.7: the resolved literal secret MUST NOT appear in DispatchResult.stdout.
+        // If this fails, the worker did not register the value for redaction.
+        expect(result.stdout).not.toContain(SECRET);
 
-      // §6.7 positive: the redaction sentinel must be present, confirming
-      // the setup script executed and the value was observed + redacted.
-      expect(result.stdout).toContain('<redacted:secret>');
+        // §6.7 positive: the echo line from the setup script must appear with
+        // the value redacted — proving both that DEPLOY_TOKEN resolved AND that
+        // the literal was replaced by the worker's redaction pass.
+        // The setup script emits `DEPLOY_TOKEN=$DEPLOY_TOKEN`; after redaction
+        // that line becomes `DEPLOY_TOKEN=<redacted:secret>`.
+        expect(result.stdout).toMatch(/DEPLOY_TOKEN=<redacted:secret>/);
+      } finally {
+        // Clean up the secretDir tmpdir so it does not accumulate across runs.
+        await rm(secretDir, { recursive: true, force: true });
+      }
     },
     120_000,
   );
