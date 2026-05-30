@@ -9,6 +9,7 @@ import {
   type RuntimeAdapter,
   type SecretStore,
 } from "@quarry-systems/agora-core";
+import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 
 // ---------------------------------------------------------------------------
 // Shared helpers (copied from entrypoint.test.ts to avoid cross-file import)
@@ -176,6 +177,204 @@ describe("agora-worker index exports", () => {
     // Just verify the module exports without errors
     const module = await import("../src/index.js");
     expect(module).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SecretStore kind selection: no effectiveStoreKind auto-detect
+// ---------------------------------------------------------------------------
+
+describe("worker SecretStore kind selection (no file:// auto-detect)", () => {
+  const cleanupDirs: string[] = [];
+
+  afterEach(async () => {
+    for (const d of cleanupDirs) {
+      await rm(d, { recursive: true, force: true });
+    }
+    cleanupDirs.length = 0;
+  });
+
+  it("uses LocalSecretStore when AGORA_SECRET_STORE_KIND=local-file + dir is set", async () => {
+    // This test verifies the new behaviour: worker honours AGORA_SECRET_STORE_KIND
+    // directly without relying on storageUri file:// sniffing.
+    const workDir = await mkdtemp(join(tmpdir(), "idx-local-work-"));
+    const adaptersRoot = await mkdtemp(join(tmpdir(), "idx-local-adapters-"));
+    const secretDir = await mkdtemp(join(tmpdir(), "idx-local-secrets-"));
+    cleanupDirs.push(workDir, adaptersRoot, secretDir);
+
+    const adapterDir = join(adaptersRoot, "claude-code");
+    await mkdir(adapterDir, { recursive: true });
+    await writeFile(
+      join(adapterDir, "index.js"),
+      `export default function () {
+         return {
+           name: "claude-code",
+           reservedPaths: [],
+           invoke: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+         };
+       };\n`,
+      "utf-8",
+    );
+
+    const subagentDef = { name: "beta", systemPrompt: "local work" };
+    const subagentUri = "agora://ns/subagent/beta/sha256:sb";
+    const subagentHash = computeContentHash(subagentDef);
+
+    const storage = new FakeStorage();
+    storage.set(subagentUri, asJsonBytes(subagentDef));
+
+    const bundleRefs = {
+      subagent: { uri: subagentUri, contentHash: subagentHash },
+      capabilities: [],
+      env: [],
+    };
+
+    // Write a staged local secret that the per-dispatch ref will resolve.
+    const secretId = "test-local-secret-id";
+    const secretValue = "resolved-from-local-file";
+    await writeFile(join(secretDir, `${secretId}.secret`), secretValue, { mode: 0o600 });
+
+    const env: Record<string, string> = {
+      AGORA_DISPATCH_ID: "d-local-1",
+      AGORA_NAMESPACE: "ns",
+      // NOTE: storage URI is NOT file:// — this proves we don't rely on sniffing.
+      AGORA_STORAGE_URI: "agora://fake-registry",
+      AGORA_BUNDLE_REFS_JSON: JSON.stringify(bundleRefs),
+      AGORA_RUNTIME_ADAPTER: "claude-code",
+      AGORA_SECRET_STORE_KIND: "local-file",
+      AGORA_SECRET_STORE_DIR: secretDir,
+      AGORA_PER_DISPATCH_SECRET_REFS_JSON: JSON.stringify({
+        MY_SECRET: `local-secret://${secretId}`,
+      }),
+    };
+
+    let capturedEnv: Record<string, string> | undefined;
+    const adapter: RuntimeAdapter = {
+      name: "claude-code",
+      reservedPaths: [],
+      invoke: async (_spec, ctx) => {
+        capturedEnv = ctx.env;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    };
+
+    const deps: RunWorkerDeps = {
+      storage,
+      adapter,
+      adaptersRoot,
+      workspaceDir: workDir,
+      // No secretStore injected: worker must build it from cfg.secretStoreKind
+    };
+
+    const code = await runWorker(env, deps);
+
+    expect(code).toBe(0);
+    // The per-dispatch secret was resolved from the local file — not via AWS.
+    expect(capturedEnv?.MY_SECRET).toBe(secretValue);
+  });
+
+  it("explicit AGORA_SECRET_STORE_KIND=aws-secrets-manager is NOT overridden by file:// storageUri + secretStoreDir", async () => {
+    // RED test: old effectiveStoreKind shim would auto-switch to 'local-file'
+    // when storageUri starts with 'file://' AND secretStoreDir is set, even
+    // though AGORA_SECRET_STORE_KIND explicitly says 'aws-secrets-manager'.
+    // That causes LocalSecretStore to be built, which rejects any ref that is
+    // NOT a 'local-secret://' scheme → fetch-failed → exit 1.
+    //
+    // After the fix: cfg.secretStoreKind is used directly → AwsSecretStore is
+    // built with the injected mock client → mock returns the secret value →
+    // exit 0.
+
+    const workDir = await mkdtemp(join(tmpdir(), "idx-aws-work-"));
+    const adaptersRoot = await mkdtemp(join(tmpdir(), "idx-aws-adapters-"));
+    const secretDir = await mkdtemp(join(tmpdir(), "idx-aws-sdir-"));
+    cleanupDirs.push(workDir, adaptersRoot, secretDir);
+
+    const adapterDir = join(adaptersRoot, "claude-code");
+    await mkdir(adapterDir, { recursive: true });
+    await writeFile(
+      join(adapterDir, "index.js"),
+      `export default function () {
+         return {
+           name: "claude-code",
+           reservedPaths: [],
+           invoke: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+         };
+       };\n`,
+      "utf-8",
+    );
+
+    const subagentDef = { name: "gamma", systemPrompt: "aws work" };
+    const subagentUri = "agora://ns/subagent/gamma/sha256:sg";
+    const subagentHash = computeContentHash(subagentDef);
+
+    const storage = new FakeStorage();
+    storage.set(subagentUri, asJsonBytes(subagentDef));
+
+    const bundleRefs = {
+      subagent: { uri: subagentUri, contentHash: subagentHash },
+      capabilities: [],
+      env: [],
+    };
+
+    // Mock SecretsManagerClient that handles GetSecretValueCommand.
+    // When AwsSecretStore resolves "arn:aws:test-ref", it calls
+    // GetSecretValueCommand — our mock returns "aws-resolved-value".
+    const AWS_SECRET_VALUE = "aws-resolved-value";
+    const mockClient = {
+      send: async (cmd: unknown) => {
+        const command = cmd as { input?: { SecretId?: string }; constructor?: { name?: string } };
+        // GetSecretValueCommand
+        if (command.constructor?.name === "GetSecretValueCommand") {
+          return { SecretString: AWS_SECRET_VALUE };
+        }
+        throw new Error(`mock: unexpected command ${command.constructor?.name}`);
+      },
+    } as unknown as SecretsManagerClient;
+
+    const env: Record<string, string> = {
+      AGORA_DISPATCH_ID: "d-aws-1",
+      AGORA_NAMESPACE: "ns",
+      // file:// URI + secretStoreDir: old shim would auto-switch to local-file.
+      AGORA_STORAGE_URI: "file:///fake",
+      AGORA_BUNDLE_REFS_JSON: JSON.stringify(bundleRefs),
+      AGORA_RUNTIME_ADAPTER: "claude-code",
+      AGORA_SECRET_STORE_KIND: "aws-secrets-manager",
+      AGORA_SECRET_STORE_DIR: secretDir,
+      // Provide a per-dispatch secret with an AWS ARN ref (not local-secret://).
+      // Old code: LocalSecretStore.resolve("arn:aws:test-ref") throws "not a local-secret ref"
+      //   → fetch-failed → exit 1 (RED).
+      // New code: AwsSecretStore.resolve("arn:aws:test-ref") → mock returns value
+      //   → exit 0 (GREEN).
+      AGORA_PER_DISPATCH_SECRET_REFS_JSON: JSON.stringify({
+        AWS_VAR: "arn:aws:test-ref",
+      }),
+    };
+
+    let capturedEnv: Record<string, string> | undefined;
+    const adapter: RuntimeAdapter = {
+      name: "claude-code",
+      reservedPaths: [],
+      invoke: async (_spec, ctx) => {
+        capturedEnv = ctx.env;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    };
+
+    const deps: RunWorkerDeps = {
+      storage,
+      adaptersRoot,
+      workspaceDir: workDir,
+      // No secretStore injection — worker builds its own from cfg.secretStoreKind.
+      // Inject mock client to avoid real AWS network calls.
+      secretsManagerClient: mockClient,
+      adapter,
+    };
+
+    const code = await runWorker(env, deps);
+
+    // With fix: AwsSecretStore was used → mock resolved the ARN ref → exit 0.
+    expect(code).toBe(0);
+    expect(capturedEnv?.AWS_VAR).toBe(AWS_SECRET_VALUE);
   });
 });
 
