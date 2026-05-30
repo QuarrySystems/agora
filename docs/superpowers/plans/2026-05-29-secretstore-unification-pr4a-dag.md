@@ -5,20 +5,20 @@ created: 2026-05-29
 
 ```mermaid
 flowchart TD
-    task-secretref-rename["task-secretref-rename: SecretRef -> {ref}<br/>files: packages/agora-core/src/refs.ts"]
-    task-core-secretstore-dir["task-core-secretstore-dir: SecretStore.dir<br/>files: packages/agora-core/src/providers.ts"]
-    task-store-factory["task-store-factory: storeFromConfig<br/>files: agora-secret-store/src/store-from-config.ts +1 more"]
-    task-local-store-dir["task-local-store-dir: expose LocalSecretStore.dir<br/>files: agora-secret-store/src/local-secret-store.ts"]
-    task-client-ctor["task-client-ctor: per-target secretStores<br/>files: packages/agora-client/src/client.ts +1 more"]
-    task-ttl-extract["task-ttl-extract: extract computeInlineSecretTtl<br/>files: packages/agora-client/src/secret-ttl.ts +1 more"]
-    task-worker-env-parser["task-worker-env-parser: parse AGORA_SECRET_STORE_KIND<br/>files: packages/agora-worker/src/env-parser.ts"]
-    task-callback-hmac["task-callback-hmac: HMAC via SecretStore<br/>files: packages/agora-client/src/callback-hmac.ts +1 more"]
-    task-dispatch-migrate["task-dispatch-migrate: dispatch staging via store<br/>files: packages/agora-client/src/dispatch.ts +2 more"]
-    task-worker-resolve["task-worker-resolve: resolve via SecretStore<br/>files: packages/agora-worker/src/entrypoint.ts +4 more"]
-    task-envregister-ref["task-envregister-ref: SecretRef field rename<br/>files: packages/agora-client/src/env-register.ts +1 more"]
-    task-cli-refs["task-cli-refs: CLI opaque ref input<br/>files: packages/agora-cli/src/cmd-env.ts +2 more"]
-    task-e2e-wiring["task-e2e-wiring: wire secretStores in e2e<br/>files: test/e2e/helpers/make-client.ts +5 more"]
-    task-example-offload["task-example-offload: wire secretStores in example<br/>files: examples/orchestrator-offload/src/index.ts"]
+    task-secretref-rename["task-secretref-rename: SecretRef -> {ref}<br/>files: packages/agora-core/src/refs.ts"]:::done
+    task-core-secretstore-dir["task-core-secretstore-dir: SecretStore.dir<br/>files: packages/agora-core/src/providers.ts"]:::done
+    task-store-factory["task-store-factory: storeFromConfig<br/>files: agora-secret-store/src/store-from-config.ts +1 more"]:::done
+    task-local-store-dir["task-local-store-dir: expose LocalSecretStore.dir<br/>files: agora-secret-store/src/local-secret-store.ts"]:::done
+    task-client-ctor["task-client-ctor: per-target secretStores<br/>files: packages/agora-client/src/client.ts +1 more"]:::done
+    task-ttl-extract["task-ttl-extract: extract computeInlineSecretTtl<br/>files: packages/agora-client/src/secret-ttl.ts +1 more"]:::done
+    task-worker-env-parser["task-worker-env-parser: parse AGORA_SECRET_STORE_KIND<br/>files: packages/agora-worker/src/env-parser.ts"]:::done
+    task-callback-hmac["task-callback-hmac: HMAC via SecretStore<br/>files: packages/agora-client/src/callback-hmac.ts +1 more"]:::done
+    task-dispatch-migrate["task-dispatch-migrate: dispatch staging via store<br/>files: packages/agora-client/src/dispatch.ts +3 more"]:::done
+    task-worker-resolve["task-worker-resolve: resolve via SecretStore<br/>files: packages/agora-worker/src/entrypoint.ts +4 more"]:::done
+    task-envregister-ref["task-envregister-ref: SecretRef field rename<br/>files: packages/agora-client/src/env-register.ts +1 more"]:::done
+    task-cli-refs["task-cli-refs: CLI opaque ref input<br/>files: packages/agora-cli/src/cmd-env.ts +2 more"]:::done
+    task-e2e-wiring["task-e2e-wiring: wire secretStores in e2e<br/>files: test/e2e/helpers/make-client.ts +5 more"]:::done
+    task-example-offload["task-example-offload: wire secretStores in example<br/>files: examples/orchestrator-offload/src/index.ts +2 more"]:::done
 
     task-secretref-rename --> task-callback-hmac
     task-secretref-rename --> task-dispatch-migrate
@@ -110,7 +110,7 @@ id: task-secretref-rename
 depends_on: []
 files:
   - packages/agora-core/src/refs.ts
-status: pending
+status: done
 ```
 
 Generalize the public `SecretRef` from `{ arn: string }` to `{ ref: string }`
@@ -156,7 +156,7 @@ id: task-core-secretstore-dir
 depends_on: []
 files:
   - packages/agora-core/src/providers.ts
-status: pending
+status: done
 ```
 
 Add an optional `readonly dir?: string` to the `SecretStore` interface so a
@@ -215,7 +215,7 @@ depends_on: []
 files:
   - packages/agora-secret-store/src/store-from-config.ts
   - packages/agora-secret-store/src/index.ts
-status: pending
+status: done
 ```
 
 A factory that reconstructs a `SecretStore` from a kind token + config, keyed on
@@ -286,7 +286,7 @@ id: task-local-store-dir
 depends_on: [task-core-secretstore-dir]
 files:
   - packages/agora-secret-store/src/local-secret-store.ts
-status: pending
+status: done
 ```
 
 Make the `LocalSecretStore` directory publicly readable so the dispatcher can
@@ -332,7 +332,7 @@ depends_on: []
 files:
   - packages/agora-client/src/client.ts
   - packages/agora-client/test/client.test.ts
-status: pending
+status: done
 ```
 
 Add per-target `SecretStore` injection to the client constructor, mirroring the
@@ -392,7 +392,7 @@ depends_on: []
 files:
   - packages/agora-client/src/secret-ttl.ts
   - packages/agora-client/src/secrets-manager.ts
-status: pending
+status: done
 ```
 
 Move the pure `computeInlineSecretTtl` out of `secrets-manager.ts` into its own
@@ -438,7 +438,7 @@ id: task-worker-env-parser
 depends_on: []
 files:
   - packages/agora-worker/src/env-parser.ts
-status: pending
+status: done
 ```
 
 Parse the explicit `AGORA_SECRET_STORE_KIND` env var into `WorkerConfig` so the
@@ -490,7 +490,7 @@ depends_on: [task-secretref-rename]
 files:
   - packages/agora-client/src/callback-hmac.ts
   - packages/agora-client/test/callback-hmac.test.ts
-status: pending
+status: done
 ```
 
 Replace the direct `CreateSecret` call in `mintCallbackHmac` with
@@ -552,9 +552,10 @@ id: task-dispatch-migrate
 depends_on: [task-secretref-rename, task-core-secretstore-dir, task-client-ctor, task-callback-hmac, task-ttl-extract]
 files:
   - packages/agora-client/src/dispatch.ts
+  - packages/agora-client/src/index.ts
   - packages/agora-client/test/dispatch.test.ts
   - packages/agora-client/test/dispatch-fire.test.ts
-status: pending
+status: done
 ```
 
 Replace the `file://`-URI store sniffing with the target's injected store. Per-
@@ -643,7 +644,7 @@ files:
   - packages/agora-worker/src/index.ts
   - packages/agora-worker/test/index.test.ts
   - packages/agora-worker/test/secret-resolver.test.ts
-status: pending
+status: done
 ```
 
 Route **all three** worker resolution paths through one `SecretStore` built via
@@ -731,7 +732,7 @@ depends_on: [task-secretref-rename]
 files:
   - packages/agora-client/src/env-register.ts
   - packages/agora-client/test/env-register.test.ts
-status: pending
+status: done
 ```
 
 Field-rename ripple only: `env-register` keeps `InlineSecretStager` (its full
@@ -777,7 +778,7 @@ files:
   - packages/agora-cli/src/cmd-env.ts
   - packages/agora-cli/src/manifest-parser.ts
   - packages/agora-cli/src/cmd-deploy.ts
-status: pending
+status: done
 ```
 
 Update the CLI/manifest secret input surface to the opaque `{ ref }` shape and
@@ -825,7 +826,7 @@ files:
   - test/e2e/callback-signing-roundtrip.test.ts
   - test/e2e/fargate-cloud-path.test.ts
   - test/e2e/credentials-rejection.test.ts
-status: pending
+status: done
 ```
 
 Update the shared `make-client` helper to optionally wire an `AwsSecretStore`
@@ -871,7 +872,9 @@ id: task-example-offload
 depends_on: [task-client-ctor, task-local-store-dir, task-dispatch-migrate]
 files:
   - examples/orchestrator-offload/src/index.ts
-status: pending
+  - examples/orchestrator-offload/package.json
+  - pnpm-lock.yaml
+status: done
 is_wiring_task: true
 ```
 
