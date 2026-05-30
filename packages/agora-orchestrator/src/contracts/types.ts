@@ -31,6 +31,9 @@ export interface ItemState extends WorkItem {
   queue: string;
   status: RunStatus;
   dispatchHash?: string;
+  actor?: string;         // submitter identity (mechanism, not authz)
+  attempts?: number;      // retry counter; absent === 0
+  nextAttemptAt?: number; // epoch ms; item not fired before this. absent === fire now
 }
 
 /** Terminal-ish result for one item (skeleton — intents/signals/audit deferred). */
