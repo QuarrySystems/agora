@@ -19,14 +19,11 @@ export {
   type CredentialPatternCheckOpts,
 } from './credential-pattern.js';
 
-// ── Secrets manager ────────────────────────────────────────────────────────
-export {
-  InlineSecretStager,
-  computeInlineSecretTtl,
-  type InlineSecretStagerOpts,
-  type StageInlineSecretArgs,
-  type StageInlineSecretResult,
-} from './secrets-manager.js';
+// ── Inline-secret TTL helper ──────────────────────────────────────────────
+export { computeInlineSecretTtl } from './secret-ttl.js';
+
+// ── Errors ─────────────────────────────────────────────────────────────────
+export { SecretStoreMismatchError } from './errors.js';
 
 // ── Callback HMAC ──────────────────────────────────────────────────────────
 export {

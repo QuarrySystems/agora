@@ -227,18 +227,10 @@ export async function runWorker(
   // per-dispatch secrets. The secretsClient is threaded in as the AWS test seam.
   const secretsClient =
     deps.secretsManagerClient ?? new SecretsManagerClient({});
-  // Resolve the effective store kind: an explicit `local-file` in the config
-  // always wins. When the config says `aws-secrets-manager` (the default), we
-  // still auto-detect local mode if the storage URI uses `file://` AND the
-  // secret-store dir is provided — this preserves the behaviour that the local
-  // Docker provider relied on before `AGORA_SECRET_STORE_KIND` was introduced.
-  const effectiveStoreKind =
-    cfg.secretStoreKind === 'local-file' ||
-    (cfg.storageUri.startsWith('file://') && !!cfg.secretStoreDir)
-      ? 'local-file'
-      : 'aws-secrets-manager';
+  // Build the SecretStore directly from the configured kind. The dispatcher
+  // always emits AGORA_SECRET_STORE_KIND, so no auto-detect is needed here.
   const secretStore = deps.secretStore ?? storeFromConfig({
-    kind: effectiveStoreKind,
+    kind: cfg.secretStoreKind,
     dir: cfg.secretStoreDir,
     client: secretsClient,
   });

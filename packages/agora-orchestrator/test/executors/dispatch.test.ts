@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AgoraClient, InlineSecretStager } from '@quarry-systems/agora-client'; // barrel import installs prototype getters
+import { describe, it, expect } from 'vitest';
+import { AgoraClient } from '@quarry-systems/agora-client'; // barrel import installs prototype getters
 import type {
   ComputeProvider,
   CredentialProvider,
+  SecretStore,
   StorageProvider,
   TaskExit,
   TaskHandle,
@@ -121,21 +122,29 @@ function makeDeferredCompute(): DeferredCompute {
 }
 
 // ---------------------------------------------------------------------------
-// Stub InlineSecretStager so tests never hit AWS
+// Fake SecretStore — replaces InlineSecretStager prototype spies
 // ---------------------------------------------------------------------------
-beforeEach(() => {
-  vi.restoreAllMocks();
-  vi.spyOn(InlineSecretStager.prototype, 'stage').mockImplementation(
-    async ({ dispatchId, envName }) => ({
-      arn: `arn:aws:secretsmanager:us-east-1:000000000000:secret:${dispatchId}/${envName}-AbCdEf`,
-      ttlSeconds: 7500,
-    }),
-  );
-  vi.spyOn(InlineSecretStager.prototype, 'cleanup').mockResolvedValue(undefined);
-});
+function makeFakeStore(): { store: SecretStore; staged: string[]; cleaned: string[] } {
+  const staged: string[] = [];
+  const cleaned: string[] = [];
+  const store: SecretStore = {
+    name: 'local-file',
+    dir: '/tmp/agora-orch-secrets',
+    stage: async (a: { name: string; value: string }) => {
+      staged.push(a.name);
+      return { ref: `local-secret://${a.name}`, ttlSeconds: 1 };
+    },
+    resolve: async () => 'v',
+    cleanupByTag: async (_k: string, v: string) => {
+      cleaned.push(v);
+    },
+  };
+  return { store, staged, cleaned };
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build a wired AgoraClient + DispatchExecutor for a given compute
+// (without a secretStore — suitable for tests that don't exercise cleanup)
 // ---------------------------------------------------------------------------
 function makeSetup(compute: ComputeProvider): {
   client: AgoraClient;
@@ -149,6 +158,31 @@ function makeSetup(compute: ComputeProvider): {
     credentials: { default: makeCredentials() },
     storage,
     targets: { prod: { compute: 'default', credentials: 'default' } },
+  });
+  const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
+  return { client, executor };
+}
+
+// ---------------------------------------------------------------------------
+// Helper: build a wired AgoraClient + DispatchExecutor with an injected fake
+// SecretStore — for tests that assert staging and cleanup behaviour.
+// ---------------------------------------------------------------------------
+function makeSetupWithStore(
+  compute: ComputeProvider,
+  fake: { store: SecretStore; staged: string[]; cleaned: string[] },
+): {
+  client: AgoraClient;
+  executor: DispatchExecutor;
+} {
+  const storage = makeMemoryStorage();
+  storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+  const client = new AgoraClient({
+    namespace: 'ns',
+    compute: { default: compute },
+    credentials: { default: makeCredentials() },
+    storage,
+    targets: { prod: { compute: 'default', credentials: 'default', secretStore: 'local' } },
+    secretStores: { local: fake.store },
   });
   const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
   return { client, executor };
@@ -224,13 +258,14 @@ describe('DispatchExecutor', () => {
     expect(result!?.status).toBe('failed');
   });
 
-  it('terminal reconcile invokes inflight.cleanup (via InlineSecretStager.prototype.cleanup spy)', async () => {
+  it('terminal reconcile invokes inflight.cleanup (via the injected store\'s cleanupByTag)', async () => {
+    const fake = makeFakeStore();
     const { compute, resolveExit } = makeDeferredCompute();
-    const { executor } = makeSetup(compute);
+    const { executor } = makeSetupWithStore(compute, fake);
 
     const { dispatchHash } = await executor.fire({
       ...baseItem,
-      inputs: { subagent: 's', workerInput: {}, 'secrets': {} },
+      inputs: { subagent: 's', workerInput: {}, secrets: {} },
     });
 
     resolveExit({
@@ -242,35 +277,16 @@ describe('DispatchExecutor', () => {
     });
     await new Promise((r) => setImmediate(r));
 
-    // Grab cleanup spy BEFORE reconcile
-    const cleanupSpy = InlineSecretStager.prototype
-      .cleanup as unknown as ReturnType<typeof vi.fn>;
-    const callsBefore = cleanupSpy.mock.calls.length;
-
     await executor.reconcile(dispatchHash);
 
-    // cleanup should have been called once more (for this dispatch)
-    // Note: with no inline secrets, awsStager is undefined, so cleanup may or
-    // may not have been called.  Verify via a dispatch WITH an inline secret.
-    expect(cleanupSpy.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
+    // cleanup should have been called (cleanupByTag invoked with the dispatchId)
+    expect(fake.cleaned).toContain(dispatchHash);
   });
 
   it('terminal reconcile invokes cleanup — directly verified via inline-secret dispatch', async () => {
+    const fake = makeFakeStore();
     const { compute, resolveExit } = makeDeferredCompute();
-    // Build storage with subagent s
-    const storage = makeMemoryStorage();
-    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
-    const client = new AgoraClient({
-      namespace: 'ns',
-      compute: { default: compute },
-      credentials: { default: makeCredentials() },
-      storage,
-      targets: { prod: { compute: 'default', credentials: 'default' } },
-    });
-    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
-
-    const cleanupSpy = InlineSecretStager.prototype
-      .cleanup as unknown as ReturnType<typeof vi.fn>;
+    const { executor } = makeSetupWithStore(compute, fake);
 
     const { dispatchHash } = await executor.fire(baseItem);
 
@@ -284,12 +300,8 @@ describe('DispatchExecutor', () => {
     await new Promise((r) => setImmediate(r));
 
     await executor.reconcile(dispatchHash);
-    // For AWS path (no rootUri on storage), InlineSecretStager.cleanup should
-    // be called with the dispatchId. Even without inline secrets, the cleanup
-    // method on the InFlightDispatch's closure is called. Since awsStager is
-    // created only when NOT isLocalStorage, check that cleanup ran by asserting
-    // the spy was called with the dispatchId.
-    expect(cleanupSpy).toHaveBeenCalledWith(dispatchHash);
+    // The injected store's cleanupByTag should have been called with the dispatchId.
+    expect(fake.cleaned).toContain(dispatchHash);
   });
 
   it('after terminal reconcile, second reconcile call returns null (entry removed)', async () => {

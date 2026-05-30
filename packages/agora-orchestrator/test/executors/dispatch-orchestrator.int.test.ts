@@ -1,11 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { AgoraOrchestrator, SqliteRunStateStore, ManualTrigger } from '../../src/index.js';
-import { AgoraClient, InlineSecretStager } from '@quarry-systems/agora-client';
+import { AgoraClient } from '@quarry-systems/agora-client';
 import { DispatchExecutor } from '../../src/executors/dispatch.js';
 import type { Run } from '../../src/contracts/index.js';
 import type {
   ComputeProvider,
   CredentialProvider,
+  SecretStore,
   StorageProvider,
   TaskExit,
   TaskHandle,
@@ -112,18 +113,25 @@ function makeDeferredCompute(): DeferredCompute {
 }
 
 // ---------------------------------------------------------------------------
-// Stub InlineSecretStager
+// Fake SecretStore — injected via client.secretStores to avoid any AWS calls
 // ---------------------------------------------------------------------------
-beforeEach(() => {
-  vi.restoreAllMocks();
-  vi.spyOn(InlineSecretStager.prototype, 'stage').mockImplementation(
-    async ({ dispatchId, envName }) => ({
-      arn: `arn:aws:secretsmanager:us-east-1:000000000000:secret:${dispatchId}/${envName}-AbCdEf`,
-      ttlSeconds: 7500,
-    }),
-  );
-  vi.spyOn(InlineSecretStager.prototype, 'cleanup').mockResolvedValue(undefined);
-});
+function makeFakeStore(): { store: SecretStore; staged: string[]; cleaned: string[] } {
+  const staged: string[] = [];
+  const cleaned: string[] = [];
+  const store: SecretStore = {
+    name: 'local-file',
+    dir: '/tmp/agora-orch-secrets',
+    stage: async (a: { name: string; value: string }) => {
+      staged.push(a.name);
+      return { ref: `local-secret://${a.name}`, ttlSeconds: 1 };
+    },
+    resolve: async () => 'v',
+    cleanupByTag: async (_k: string, v: string) => {
+      cleaned.push(v);
+    },
+  };
+  return { store, staged, cleaned };
+}
 
 // ---------------------------------------------------------------------------
 // Integration tests
@@ -131,6 +139,7 @@ beforeEach(() => {
 describe('AgoraOrchestrator + DispatchExecutor', () => {
   it('drives a 1-item run to done across two ticks', async () => {
     const { compute, resolveExit } = makeDeferredCompute();
+    const { store: secretStore } = makeFakeStore();
     const storage = makeMemoryStorage();
     storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
     const client = new AgoraClient({
@@ -138,7 +147,8 @@ describe('AgoraOrchestrator + DispatchExecutor', () => {
       compute: { default: compute },
       credentials: { default: makeCredentials() },
       storage,
-      targets: { prod: { compute: 'default', credentials: 'default' } },
+      targets: { prod: { compute: 'default', credentials: 'default', secretStore: 'local' } },
+      secretStores: { local: secretStore },
     });
 
     const store = new SqliteRunStateStore();
@@ -193,6 +203,7 @@ describe('AgoraOrchestrator + DispatchExecutor', () => {
 
   it('drives a 1-item run to failed when exit code is non-zero', async () => {
     const { compute, resolveExit } = makeDeferredCompute();
+    const { store: secretStore } = makeFakeStore();
     const storage = makeMemoryStorage();
     storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
     const client = new AgoraClient({
@@ -200,7 +211,8 @@ describe('AgoraOrchestrator + DispatchExecutor', () => {
       compute: { default: compute },
       credentials: { default: makeCredentials() },
       storage,
-      targets: { prod: { compute: 'default', credentials: 'default' } },
+      targets: { prod: { compute: 'default', credentials: 'default', secretStore: 'local' } },
+      secretStores: { local: secretStore },
     });
 
     const store = new SqliteRunStateStore();
