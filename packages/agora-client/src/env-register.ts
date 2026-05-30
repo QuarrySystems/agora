@@ -6,23 +6,22 @@
 //     throws `CredentialsInEnvError` with the field
 //     `env-bundle:<name>:<key>` on the first match. `opts.allowCredentialPatterns`
 //     is forwarded to the scanner verbatim.
-//   - Inline secrets (`{inline: ...}`) are staged via `InlineSecretStager`
-//     (env-scoped, not dispatch-scoped — env bundles are reused across
-//     dispatches). The resulting ref is recorded in the bundle; the inline
-//     value is NEVER written to storage (§7.1 paragraph 2).
+//   - Inline secrets (`{inline: ...}`) are staged via the caller-named
+//     SecretStore (`client.secretStores[opts.secretStore]`). The resulting
+//     opaque ref is recorded in the bundle; the inline value is NEVER written
+//     to storage (§7.1 paragraph 2).
 //   - Ref-form secrets (`{ref: ...}`) pass through unchanged.
 //   - The content hash covers `(values, secret refs)` — never the inline
 //     secret values themselves. For ref-form secrets the ref is the opaque
 //     ref string itself; for inline secrets the ref is the DETERMINISTIC
 //     staged-secret NAME (`${namePrefix}/env-${opts.name}/${secretKey}`),
-//     NOT the AWS-returned ref. Using the deterministic name keeps the hash
-//     stable across calls so the idempotency check fires BEFORE any AWS
-//     staging — otherwise the second call would crash with
-//     `ResourceExistsException` or get back a fresh ref that breaks hash
-//     equality.
+//     NOT the store-returned ref. Using the deterministic name keeps the hash
+//     stable across calls so the idempotency check fires BEFORE any staging
+//     — otherwise the second call would crash with ResourceExistsException
+//     or get back a fresh ref that breaks hash equality.
 //   - If the latest registration for this logical name already matches the
 //     computed content hash, the existing `EnvRef` is returned without
-//     issuing a duplicate put AND without invoking the stager at all.
+//     issuing a duplicate put AND without invoking the store at all.
 
 import {
   buildAgoraUri,
@@ -31,6 +30,7 @@ import {
   type EnvRef,
   type SecretRef,
   type InlineSecret,
+  type SecretStore,
 } from '@quarry-systems/agora-core';
 
 import type { AgoraClient } from './client.js';
@@ -38,7 +38,7 @@ import {
   assertNoCredentialPattern,
   type CredentialPatternCheckOpts,
 } from './credential-pattern.js';
-import { InlineSecretStager } from './secrets-manager.js';
+import { computeInlineSecretTtl } from './secret-ttl.js';
 
 /** Options to {@link registerEnv}. */
 export interface RegisterEnvOpts extends CredentialPatternCheckOpts {
@@ -52,16 +52,15 @@ export interface RegisterEnvOpts extends CredentialPatternCheckOpts {
   /**
    * Secret references. Each entry is either an already-registered opaque ref
    * (`{ref: ...}`) or an inline value (`{inline: ...}`) that will be staged
-   * into Secrets Manager. The inline value never crosses into the registered
-   * bundle — only the resulting ref does.
+   * into the named SecretStore. The inline value never crosses into the
+   * registered bundle — only the resulting ref does.
    */
   secrets?: Record<string, SecretRef | InlineSecret>;
   /**
-   * Optional dependency-injected stager. Production callers should leave
-   * this unset (a fresh `InlineSecretStager` is constructed on demand);
-   * tests inject a fake to avoid real Secrets Manager calls.
+   * Name of the SecretStore (in `client.secretStores`) used to stage inline
+   * secrets. Required only when `secrets` contains at least one inline entry.
    */
-  stager?: Pick<InlineSecretStager, 'stage'>;
+  secretStore?: string;
 }
 
 /**
@@ -73,20 +72,16 @@ function isSecretRef(v: SecretRef | InlineSecret): v is SecretRef {
 }
 
 /**
- * Mirrors the `InlineSecretStager`'s default `namePrefix`. Kept in sync by
- * convention — if the stager default ever changes, this must change too.
- * Tests pin this against the same default.
+ * Mirrors the deterministic prefix used to build placeholder names for inline
+ * secrets. Kept stable — changing this would invalidate all existing hashes.
  */
 const INLINE_SECRET_NAME_PREFIX = 'agora/inline';
 
 /**
  * Compute the deterministic staged-secret NAME used as the hash placeholder
- * for an inline secret. Matches the name computed by
- * `InlineSecretStager.stage` when called with `dispatchId = env-${envName}`.
- *
- * The hash uses this NAME (stable across calls) rather than the AWS-returned
- * ARN (which would be fresh on every staging) so the idempotency check
- * upstream can fire before any AWS Secrets Manager call is made.
+ * for an inline secret. The hash uses this NAME (stable across calls) rather
+ * than the store-returned ref (which would be fresh on every staging) so the
+ * idempotency check upstream can fire before any store call is made.
  */
 function inlineSecretPlaceholder(envBundleName: string, secretKey: string): string {
   return `${INLINE_SECRET_NAME_PREFIX}/env-${envBundleName}/${secretKey}`;
@@ -99,6 +94,8 @@ function inlineSecretPlaceholder(envBundleName: string, secretKey: string): stri
  * Throws:
  *   - `CredentialsInEnvError` when any `values:` entry matches a credential
  *     pattern (the error's `field` is `env-bundle:<name>:<key>`).
+ *   - `Error` when `secrets` contains inline entries but `secretStore` is
+ *     not provided or does not exist in `client.secretStores`.
  *
  * Idempotent: re-registering with identical inputs returns the existing
  * `EnvRef` without bumping `registeredAt` or writing a new blob.
@@ -116,12 +113,12 @@ export async function registerEnv(
     });
   }
 
-  // 2. Build the *placeholder* secretRefs map — ARN-form secrets contribute
-  //    their real ARN; inline secrets contribute the deterministic staged-
-  //    secret NAME (NOT a real ARN yet). This map is what the content hash
-  //    is computed over. Using the deterministic name keeps the hash stable
-  //    across calls so the idempotency check below fires BEFORE we make
-  //    any AWS Secrets Manager call.
+  // 2. Build the *placeholder* secretRefs map — ref-form secrets contribute
+  //    their real ref; inline secrets contribute the deterministic staged-
+  //    secret NAME (NOT a real store ref yet). This map is what the content
+  //    hash is computed over. Using the deterministic name keeps the hash
+  //    stable across calls so the idempotency check below fires BEFORE we make
+  //    any store call.
   //
   //    The contract: the hash is a function of (values + secret IDENTITY),
   //    where "identity" is the ref for ref-form entries and the deterministic
@@ -139,11 +136,31 @@ export async function registerEnv(
     }
   }
 
+  // 2b. Resolve the named store (if needed) — do this BEFORE idempotency
+  //     check so we fail fast on a bad secretStore option rather than only
+  //     discovering the problem on a cache miss.
+  let store: SecretStore | undefined;
+  if (inlineSecretKeys.length > 0) {
+    if (!opts.secretStore) {
+      throw new Error(
+        'registerEnv: secretStore is required when the bundle has inline secrets',
+      );
+    }
+    store = client.secretStores[opts.secretStore];
+    if (!store) {
+      throw new Error(`registerEnv: unknown secretStore ${opts.secretStore}`);
+    }
+  }
+
   const def = {
     kind: 'env-bundle' as const,
     name: opts.name,
     values,
     secretRefs,
+    // Record the store name so the dispatch-time compatibility check (PR4b
+    // task-store-mismatch-check) can verify the runtime has the right store.
+    // Undefined for pure-values / ref-only bundles (no staging needed).
+    store: store?.name,
   };
   const contentHash = computeContentHash(def);
 
@@ -157,7 +174,7 @@ export async function registerEnv(
   //    reuse its registeredAt and skip BOTH the storage write AND any
   //    inline-secret staging. This is the load-bearing reordering: staging
   //    before this check would crash on the second identical call
-  //    (`ResourceExistsException`) or hand back a fresh ARN that breaks
+  //    (ResourceExistsException) or hand back a fresh ref that breaks
   //    hash equality.
   const latest = await client.storage.resolveLatest(baseUri);
   if (latest && latest.contentHash === contentHash) {
@@ -169,32 +186,29 @@ export async function registerEnv(
   }
 
   // 4. Not idempotent — this is a fresh registration. Now (and only now)
-  //    stage the inline secrets to obtain real ARNs. The stored bundle
-  //    blob contains the real ARNs (so the runtime can mount them); only
+  //    stage the inline secrets to obtain real opaque refs. The stored bundle
+  //    blob contains the real refs (so the runtime can mount them); only
   //    the contentHash itself was computed from the placeholder names.
   if (inlineSecretKeys.length > 0) {
-    const stager = opts.stager ?? new InlineSecretStager();
     for (const key of inlineSecretKeys) {
       const entry = secrets[key] as InlineSecret;
-      const { arn } = await stager.stage({
+      const { ref } = await store!.stage({
         // Env-bundle secrets are not dispatch-scoped — use the env name
         // as the disambiguator. This MUST stay aligned with
-        // `inlineSecretPlaceholder` so the stager's computed name matches
+        // `inlineSecretPlaceholder` so the store's computed name matches
         // the placeholder folded into the hash above.
-        dispatchId: `env-${opts.name}`,
-        envName: key,
-        inline: entry,
-        // Envs aren't dispatch-scoped; the stager's auto-TTL formula
-        // falls back to (7200 + 300) = 7500s per §7.6 until §7.6's
-        // explicit per-dispatch override is introduced elsewhere.
+        name: inlineSecretPlaceholder(opts.name, key),
+        value: entry.inline,
+        ttlSeconds: computeInlineSecretTtl({ explicit: entry.ttlSeconds }),
+        tags: { 'agora:dispatchId': `env-${opts.name}` },
       });
-      secretRefs[key] = arn;
+      secretRefs[key] = ref;
     }
   }
 
   // 5. Write the bundle payload at the pinned URI. The pinned URI uses
   //    the placeholder-derived contentHash (stable across calls); the
-  //    blob body carries the real ARNs.
+  //    blob body carries the real opaque refs.
   const pinnedUri = buildAgoraUri({
     namespace: client.namespace,
     type: 'env',

@@ -4,12 +4,10 @@ import { AgoraClient } from '../src/client.js';
 import {
   CredentialsInEnvError,
   type StorageProvider,
+  type SecretStore,
+  type StageSecretArgs,
+  type StagedSecret,
 } from '@quarry-systems/agora-core';
-import type {
-  InlineSecretStager,
-  StageInlineSecretArgs,
-  StageInlineSecretResult,
-} from '../src/secrets-manager.js';
 
 /**
  * In-memory storage stub (mirrors the subagent-register test stub). Pinned
@@ -71,48 +69,50 @@ function makeMemoryStorage(): StorageProvider & {
   };
 }
 
-function makeClient(storage: StorageProvider): AgoraClient {
+/**
+ * Build a minimal fake SecretStore for test injection.
+ */
+function makeFakeStore(storeName = 'fake-store'): SecretStore & {
+  staged: Array<StageSecretArgs>;
+} {
+  const staged: Array<StageSecretArgs> = [];
+  let counter = 0;
+  return {
+    name: storeName,
+    staged,
+    async stage(args: StageSecretArgs): Promise<StagedSecret> {
+      staged.push(args);
+      counter += 1;
+      return { ref: `local-secret://fake-${counter}`, ttlSeconds: 7500 };
+    },
+    async resolve(_ref: string): Promise<string> {
+      return '';
+    },
+    async cleanupByTag(_tagKey: string, _tagValue: string): Promise<void> {},
+  };
+}
+
+function makeClient(
+  storage: StorageProvider,
+  secretStores?: Record<string, SecretStore>,
+): AgoraClient {
   return new AgoraClient({
     namespace: 'ns',
     compute: {},
     credentials: {},
     storage,
     targets: {},
+    secretStores,
   });
-}
-
-/**
- * Minimal fake stager that records calls and returns a synthetic ARN.
- * Implements only the {@link InlineSecretStager.stage} surface that
- * env-register depends on.
- */
-function makeFakeStager(): Pick<InlineSecretStager, 'stage'> & {
-  calls: StageInlineSecretArgs[];
-} {
-  const calls: StageInlineSecretArgs[] = [];
-  let counter = 0;
-  return {
-    calls,
-    async stage(args: StageInlineSecretArgs): Promise<StageInlineSecretResult> {
-      calls.push(args);
-      counter += 1;
-      return {
-        arn: `arn:aws:secretsmanager:us-east-1:123:secret:fake-${counter}`,
-        ttlSeconds: 7500,
-      };
-    },
-  };
 }
 
 describe('registerEnv', () => {
   it('rejects values matching a credential pattern with field env-bundle:<name>:<key>', async () => {
     const client = makeClient(makeMemoryStorage());
-    const stager = makeFakeStager();
     try {
       await registerEnv(client, {
         name: 'leaky',
         values: { AWS_KEY: 'AKIAIOSFODNN7EXAMPLE' },
-        stager: stager as unknown as InlineSecretStager,
       });
       throw new Error('expected CredentialsInEnvError to be thrown');
     } catch (err) {
@@ -125,13 +125,11 @@ describe('registerEnv', () => {
 
   it('passes allowCredentialPatterns through to the scanner', async () => {
     const client = makeClient(makeMemoryStorage());
-    const stager = makeFakeStager();
     // Without the allow-list this would throw; with it, the registration succeeds.
     const ref = await registerEnv(client, {
       name: 'allowed',
       values: { AWS_KEY: 'AKIAIOSFODNN7EXAMPLE' },
       allowCredentialPatterns: ['aws-access-key'],
-      stager: stager as unknown as InlineSecretStager,
     });
     expect(ref.name).toBe('allowed');
     expect(ref.contentHash).toMatch(/^sha256:[0-9a-f]+$/);
@@ -139,11 +137,9 @@ describe('registerEnv', () => {
 
   it('returns an EnvRef with name, registeredAt, and contentHash', async () => {
     const client = makeClient(makeMemoryStorage());
-    const stager = makeFakeStager();
     const ref = await registerEnv(client, {
       name: 'prod',
       values: { LOG_LEVEL: 'info' },
-      stager: stager as unknown as InlineSecretStager,
     });
     expect(ref.name).toBe('prod');
     expect(typeof ref.registeredAt).toBe('string');
@@ -153,77 +149,134 @@ describe('registerEnv', () => {
   it('writes the env definition to storage at the pinned URI', async () => {
     const storage = makeMemoryStorage();
     const client = makeClient(storage);
-    const stager = makeFakeStager();
     const ref = await registerEnv(client, {
       name: 'prod',
       values: { LOG_LEVEL: 'info' },
-      stager: stager as unknown as InlineSecretStager,
     });
     const pinnedUri = `agora://ns/env/prod/${ref.contentHash}`;
     expect(storage.blobs.has(pinnedUri)).toBe(true);
   });
 
   it('passes through an opaque ref-form secret unchanged (no stage call)', async () => {
-    const client = makeClient(makeMemoryStorage());
-    const stager = makeFakeStager();
+    const store = makeFakeStore();
+    const client = makeClient(makeMemoryStorage(), { mystore: store });
     const secretRef = 'arn:aws:secretsmanager:us-east-1:123:secret:preexisting';
     const ref = await registerEnv(client, {
       name: 'prod',
       secrets: { GH_TOKEN: { ref: secretRef } },
-      stager: stager as unknown as InlineSecretStager,
+      // no secretStore needed for ref-form secrets
     });
     expect(ref.contentHash).toMatch(/^sha256:[0-9a-f]+$/);
-    expect(stager.calls).toHaveLength(0);
+    expect(store.staged).toHaveLength(0);
   });
 
-  it('stages inline secrets and records ARN — not inline value — in the bundle', async () => {
+  it('stages inline secrets via the named store and records store kind on the blob', async () => {
     const storage = makeMemoryStorage();
-    const client = makeClient(storage);
-    const stager = makeFakeStager();
+    const store = makeFakeStore('local-file');
+    const client = makeClient(storage, { local: store });
+    const ref = await registerEnv(client, {
+      name: 'b',
+      secretStore: 'local',
+      secrets: { K: { inline: 'super-inline-value' } },
+    });
+
+    // The store was called for the inline secret.
+    expect(store.staged).toHaveLength(1);
+
+    // Read back the stored blob and assert def.store === "local-file"
+    // and def.secretRefs.K === the opaque ref (not the inline value)
+    const pinnedUri = `agora://ns/env/b/${ref.contentHash}`;
+    const blob = storage.blobs.get(pinnedUri);
+    expect(blob).toBeDefined();
+    const decoded = new TextDecoder().decode(blob!);
+    const def = JSON.parse(decoded) as {
+      store?: string;
+      secretRefs: Record<string, string>;
+    };
+    expect(def.store).toBe('local-file');
+    expect(def.secretRefs['K']).toBe('local-secret://fake-1');
+    expect(decoded).not.toContain('super-inline-value'); // inline value never stored
+  });
+
+  it('stages inline secrets and records ref — not inline value — in the bundle', async () => {
+    const storage = makeMemoryStorage();
+    const store = makeFakeStore('test-store');
+    const client = makeClient(storage, { mystore: store });
     const ref = await registerEnv(client, {
       name: 'prod',
       secrets: { GH_TOKEN: { inline: 'super-secret-value' } },
-      stager: stager as unknown as InlineSecretStager,
+      secretStore: 'mystore',
     });
 
-    // The stager was called for the inline secret.
-    expect(stager.calls).toHaveLength(1);
-    expect(stager.calls[0].envName).toBe('GH_TOKEN');
-    expect(stager.calls[0].inline).toEqual({ inline: 'super-secret-value' });
+    // The store was called for the inline secret.
+    expect(store.staged).toHaveLength(1);
+    expect(store.staged[0].name).toContain('GH_TOKEN');
 
-    // The blob written to storage MUST contain the ARN but NOT the inline value.
+    // The blob written to storage MUST contain the ref but NOT the inline value.
     const pinnedUri = `agora://ns/env/prod/${ref.contentHash}`;
     const blob = storage.blobs.get(pinnedUri);
     expect(blob).toBeDefined();
     const decoded = new TextDecoder().decode(blob!);
-    expect(decoded).toContain(
-      'arn:aws:secretsmanager:us-east-1:123:secret:fake-1',
-    );
+    expect(decoded).toContain('local-secret://fake-1');
     expect(decoded).not.toContain('super-secret-value');
   });
 
-  it('content hash depends on secret ARN refs, not inline values', async () => {
-    // Two registrations whose only difference is the inline value (the stager
-    // returns the SAME ARN for both) should produce the SAME content hash —
-    // because the hash covers ARN refs, not inline values.
-    const client1 = makeClient(makeMemoryStorage());
-    const client2 = makeClient(makeMemoryStorage());
+  it('throws a clear error when inline secrets are present but secretStore is not provided', async () => {
+    const client = makeClient(makeMemoryStorage());
+    await expect(
+      registerEnv(client, {
+        name: 'prod',
+        secrets: { GH_TOKEN: { inline: 'secret' } },
+        // no secretStore
+      }),
+    ).rejects.toThrow('registerEnv: secretStore is required when the bundle has inline secrets');
+  });
 
-    const fixedArnStager: Pick<InlineSecretStager, 'stage'> = {
-      async stage(_args: StageInlineSecretArgs): Promise<StageInlineSecretResult> {
-        return { arn: 'arn:fixed', ttlSeconds: 7500 };
+  it('throws a clear error when the named secretStore does not exist in client.secretStores', async () => {
+    const client = makeClient(makeMemoryStorage(), {});
+    await expect(
+      registerEnv(client, {
+        name: 'prod',
+        secrets: { GH_TOKEN: { inline: 'secret' } },
+        secretStore: 'nonexistent',
+      }),
+    ).rejects.toThrow('registerEnv: unknown secretStore nonexistent');
+  });
+
+  it('content hash depends on secret refs, not inline values', async () => {
+    // Two registrations whose only difference is the inline value (the store
+    // returns the SAME ref for both) should produce the SAME content hash —
+    // because the hash covers placeholder names, not inline values.
+    const client1 = makeClient(makeMemoryStorage(), {
+      mystore: {
+        name: 'fixed-store',
+        async stage(_args: StageSecretArgs): Promise<StagedSecret> {
+          return { ref: 'local-secret://fixed', ttlSeconds: 7500 };
+        },
+        async resolve(_ref: string): Promise<string> { return ''; },
+        async cleanupByTag(_tagKey: string, _tagValue: string): Promise<void> {},
       },
-    };
+    });
+    const client2 = makeClient(makeMemoryStorage(), {
+      mystore: {
+        name: 'fixed-store',
+        async stage(_args: StageSecretArgs): Promise<StagedSecret> {
+          return { ref: 'local-secret://fixed', ttlSeconds: 7500 };
+        },
+        async resolve(_ref: string): Promise<string> { return ''; },
+        async cleanupByTag(_tagKey: string, _tagValue: string): Promise<void> {},
+      },
+    });
 
     const refA = await registerEnv(client1, {
       name: 'prod',
       secrets: { GH_TOKEN: { inline: 'value-A' } },
-      stager: fixedArnStager as unknown as InlineSecretStager,
+      secretStore: 'mystore',
     });
     const refB = await registerEnv(client2, {
       name: 'prod',
       secrets: { GH_TOKEN: { inline: 'value-B' } },
-      stager: fixedArnStager as unknown as InlineSecretStager,
+      secretStore: 'mystore',
     });
 
     expect(refA.contentHash).toBe(refB.contentHash);
@@ -236,12 +289,10 @@ describe('registerEnv', () => {
     const refA = await registerEnv(client1, {
       name: 'prod',
       secrets: { GH_TOKEN: { ref: 'arn:one' } },
-      stager: makeFakeStager() as unknown as InlineSecretStager,
     });
     const refB = await registerEnv(client2, {
       name: 'prod',
       secrets: { GH_TOKEN: { ref: 'arn:two' } },
-      stager: makeFakeStager() as unknown as InlineSecretStager,
     });
 
     expect(refA.contentHash).not.toBe(refB.contentHash);
@@ -250,17 +301,14 @@ describe('registerEnv', () => {
   it('content hash depends on values', async () => {
     const client1 = makeClient(makeMemoryStorage());
     const client2 = makeClient(makeMemoryStorage());
-    const stager = makeFakeStager();
 
     const refA = await registerEnv(client1, {
       name: 'prod',
       values: { LOG_LEVEL: 'info' },
-      stager: stager as unknown as InlineSecretStager,
     });
     const refB = await registerEnv(client2, {
       name: 'prod',
       values: { LOG_LEVEL: 'debug' },
-      stager: stager as unknown as InlineSecretStager,
     });
 
     expect(refA.contentHash).not.toBe(refB.contentHash);
@@ -274,14 +322,12 @@ describe('registerEnv', () => {
       name: 'prod',
       values: { LOG_LEVEL: 'info' },
       secrets: { GH_TOKEN: { ref: 'arn:fixed' } },
-      stager: makeFakeStager() as unknown as InlineSecretStager,
     });
     const blobCountAfterFirst = storage.blobs.size;
     const second = await registerEnv(client, {
       name: 'prod',
       values: { LOG_LEVEL: 'info' },
       secrets: { GH_TOKEN: { ref: 'arn:fixed' } },
-      stager: makeFakeStager() as unknown as InlineSecretStager,
     });
 
     expect(second.contentHash).toBe(first.contentHash);
@@ -298,34 +344,34 @@ describe('registerEnv', () => {
 
   it('is idempotent for inline secrets — second identical call reuses bundle without re-staging', async () => {
     // Regression: previously, inline secrets were staged BEFORE the
-    // idempotency check. With a real AWS Secrets Manager backing, the second
+    // idempotency check. With a real Secrets Manager backing, the second
     // CreateSecretCommand would either throw ResourceExistsException or
-    // return a different ARN — either way breaking the idempotency contract.
+    // return a different ref — either way breaking the idempotency contract.
     //
     // The fix is to compute the lookup contentHash using a deterministic
-    // placeholder for inline secrets (the staged secret NAME, not the AWS
-    // ARN). The second identical call must short-circuit on idempotency
-    // BEFORE invoking the stager. The fake stager here returns a fresh
-    // ARN per call (counter-suffixed), exactly the failure mode the fix
+    // placeholder for inline secrets (the staged secret NAME, not the returned
+    // ref). The second identical call must short-circuit on idempotency
+    // BEFORE invoking the store. The fake store here returns a fresh
+    // ref per call (counter-suffixed), exactly the failure mode the fix
     // exists to defend against.
     const storage = makeMemoryStorage();
-    const client = makeClient(storage);
-    const stager = makeFakeStager();
+    const store = makeFakeStore();
+    const client = makeClient(storage, { mystore: store });
 
     const first = await registerEnv(client, {
       name: 'prod',
       values: { LOG_LEVEL: 'info' },
       secrets: { GH_TOKEN: { inline: 'super-secret-value' } },
-      stager: stager as unknown as InlineSecretStager,
+      secretStore: 'mystore',
     });
-    const stageCallsAfterFirst = stager.calls.length;
+    const stageCallsAfterFirst = store.staged.length;
     const blobCountAfterFirst = storage.blobs.size;
 
     const second = await registerEnv(client, {
       name: 'prod',
       values: { LOG_LEVEL: 'info' },
       secrets: { GH_TOKEN: { inline: 'super-secret-value' } },
-      stager: stager as unknown as InlineSecretStager,
+      secretStore: 'mystore',
     });
 
     // Idempotency holds end-to-end.
@@ -333,10 +379,22 @@ describe('registerEnv', () => {
     expect(second.registeredAt).toBe(first.registeredAt);
     expect(storage.blobs.size).toBe(blobCountAfterFirst);
 
-    // The stager was NOT called the second time — this is the load-bearing
+    // The store was NOT called the second time — this is the load-bearing
     // assertion. Re-staging on a second identical call would either crash
-    // (ResourceExistsException) or produce a fresh ARN that breaks the
+    // (ResourceExistsException) or produce a fresh ref that breaks the
     // hash-equality contract.
-    expect(stager.calls.length).toBe(stageCallsAfterFirst);
+    expect(store.staged.length).toBe(stageCallsAfterFirst);
+  });
+
+  it('pure values / ref-only bundles register with no secretStore needed', async () => {
+    const client = makeClient(makeMemoryStorage());
+    // No secretStore provided — must succeed because no inline secrets
+    const ref = await registerEnv(client, {
+      name: 'pure',
+      values: { LOG_LEVEL: 'warn' },
+      secrets: { TOKEN: { ref: 'arn:aws:some:ref' } },
+    });
+    expect(ref.name).toBe('pure');
+    expect(ref.contentHash).toMatch(/^sha256:[0-9a-f]+$/);
   });
 });
