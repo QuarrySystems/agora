@@ -399,15 +399,26 @@ tamper-*evidence* requires anchoring the head where the writer cannot silently
 rewrite it. So:
 
 1. **Structure (always on, in-engine).** Entries are persisted durably,
-   content-addressed, joined to the run-state row, and accumulated into a
-   **Merkle tree per anchoring epoch** (epoch = run-completion for agora). The
-   epoch root summarizes every entry; inclusion proofs are cheap. This layer
-   gives *detection*, provider-agnostic, with no external dependency.
+   content-addressed, joined to the run-state row, hash-chained
+   (`entryHash = sha256(canon(entry) ‖ prevHash)`, genesis `prevHash = ""`), and
+   the epoch's `entryHash` leaves are accumulated into a **Merkle tree per
+   anchoring epoch** (epoch = run-completion for agora). The epoch root summarizes
+   every entry; inclusion proofs are cheap. This layer gives *detection*,
+   provider-agnostic, with no external dependency.
+   **Pinned hash algorithm (shared with Mneme):** SHA-256; Merkle leaves
+   domain-separated with a `0x00` prefix, internal pairs with `0x01` (second-
+   preimage resistance); empty set → 32 zero bytes; an odd level duplicates its
+   last node. agora's lifecycle-entry canonical form is an ordered, JSON-stringified
+   field array (agora pins its own fields — they differ from Mneme's claim events —
+   but the chaining + Merkle + domain-separation rules are identical, so the
+   *protocol* is bit-compatible).
 2. **Signature (composable `Signer` seam).** The epoch root is signed before
    anchoring — `KmsSigner` (asymmetric key in KMS; private half never leaves it;
-   every sign call is CloudTrail-logged) for production, `LocalSigner`/none for
-   dev. A DB-only attacker without the key can't forge a valid root;
-   non-repudiation, and key *use* is itself audited.
+   every sign call is CloudTrail-logged) for production, `LocalSigner` (**ed25519**
+   via `node:crypto`; public key exported **SPKI DER**) or `NoneSigner` for dev.
+   ed25519/SPKI is the shared baseline with Mneme so signatures verify across both.
+   A DB-only attacker without the key can't forge a valid root; non-repudiation,
+   and key *use* is itself audited.
 3. **Anchor (pluggable `AuditAnchor` seam).** The signed root goes to an external
    sink the app *cannot silently rewrite*. This is the load-bearing tamper-
    *evidence* layer, and it is an adapter precisely so deployments pick their
@@ -429,6 +440,30 @@ platform's two halves anchor identically, and an implementer learns one model.
 (Not shared *code* yet — agora takes no Quarry-lib deps, D11 — but identical
 *shape*, a candidate for the eventual extracted substrate.)
 
+**Pinned contract (normative — transcribed from Mneme verbatim, `src/contracts/audit.ts`):**
+
+```typescript
+export type Guarantee = 'detect' | 'external-immutable' | 'witnessed';
+/** Licenses the "tamper-evident" claim only at rank >= external-immutable. */
+export const GUARANTEE_RANK: Record<Guarantee, number> = { detect: 0, 'external-immutable': 1, witnessed: 2 };
+
+export interface Signature { alg: string; bytes: Uint8Array; keyRef?: string; }
+export interface AnchorReceipt { anchorId: string; epochId: string; guarantee: Guarantee; at: number; locator?: string; }
+export interface AnchoredRoot { epochId: string; root: Uint8Array; signature?: Signature; receipt: AnchorReceipt; }
+
+export interface Signer { sign(rootHash: Uint8Array): Promise<Signature>; readonly keyRef?: string; }
+
+export interface AuditAnchor {
+  readonly id: string;
+  readonly guarantee: Guarantee;
+  anchor(epoch: { epochId: string; root: Uint8Array; signature?: Signature }): Promise<AnchorReceipt>;
+  fetch(range: { epochId?: string; since?: string }): Promise<AnchoredRoot[]>;
+}
+```
+
+These shapes are the platform protocol; agora and Mneme each define them
+independently but **identically** (conformance vectors keep them from drifting).
+
 **Honesty is enforced by the seam, not by discipline alone.** Every `AuditAnchor`
 declares its `guarantee`, and `agora orch audit` (§6.5) **prints the anchor in
 force and its guarantee on the verification report.** The product's *claim* is
@@ -438,9 +473,15 @@ scoped to the configured anchor: **"tamper-evident"** is licensed only at
 evident (ties to §6.1 / V1-D3). An auditor reads the guarantee off the bundle,
 not off the marketing.
 
-**Verification** = recompute each epoch's Merkle root from its entries → it must
-equal a signed root the `AuditAnchor` returns → the signature must verify. Tamper
-anywhere before the last anchored epoch yields a mismatch; a *missing* expected
+**Verification** = recompute each epoch's Merkle root from its entries →
+**`AuditAnchor.fetch()` the anchored root** (verification MUST consult the external
+anchor, not a locally-stored copy — that is the whole point) → the recomputed root
+MUST equal the fetched anchored root → the signature MUST verify. **A mismatch, or
+a missing/unreachable anchored root, means the run is NOT tamper-evident** and the
+report drops to the honest tier (`tamper-detecting`) regardless of which anchor was
+*configured* — the claim follows what verification can *prove*, never what was
+merely declared. Tamper anywhere before the last anchored epoch yields a mismatch;
+a *missing* expected
 anchor is itself detectable; anchoring cadence bounds the rewritable window.
 
 ### 6.4 Actor identity on every operation
