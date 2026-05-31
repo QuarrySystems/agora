@@ -9,3 +9,5 @@ export { AgoraOrchestrator, PRIVILEGE } from './orchestrator.js';
 export type { AgoraOrchestratorOptions, QueueConfig, StatusItem } from './orchestrator.js';
 export { DispatchExecutor } from './executors/dispatch.js';
 export type { DispatchExecutorOptions } from './executors/dispatch.js';
+export { PackRegistry } from './packs/registry.js';
+export { devPack, devCodeEdit, devVerify, devRegistry } from './packs/dev.js';
