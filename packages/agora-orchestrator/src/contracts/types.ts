@@ -16,6 +16,8 @@ export interface WorkItem {
   depends_on: string[];
   /** shared resource keys that serialize contending items. */
   resourceLocks: string[];
+  /** Optional id of a registered SubagentShape; when set, inputs are validated against its inputSchema. */
+  subagentShape?: string;
 }
 
 /** One plan submission: a set of WorkItems + their edges, placed on a queue. */

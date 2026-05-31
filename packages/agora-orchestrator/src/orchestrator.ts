@@ -1,5 +1,6 @@
 // packages/agora-orchestrator/src/orchestrator.ts
 import type { Executor, ItemState, Run, RunStateStore, Trigger } from './contracts/index.js';
+import type { PackRegistry } from './packs/registry.js';
 import { tick } from './engine/tick.js';
 
 export interface QueueConfig { concurrency: number; }
@@ -9,6 +10,7 @@ export interface AgoraOrchestratorOptions {
   triggers: Record<string, Trigger>;
   queues: Record<string, QueueConfig>;
   defaultQueue?: string; // defaults to 'default'
+  packs?: PackRegistry;
 }
 
 /** method -> privilege tag (mechanism for the §10.6 CLI/MCP split; surfaces land later). */
@@ -23,11 +25,13 @@ export class AgoraOrchestrator {
   private readonly executors: Record<string, Executor>;
   private readonly triggers: Record<string, Trigger>;
   private readonly defaultQueue: string;
+  private readonly packs: PackRegistry | undefined;
   constructor(opts: AgoraOrchestratorOptions) {
     this.store = opts.store;
     this.executors = opts.executors;
     this.triggers = opts.triggers;
     this.defaultQueue = opts.defaultQueue ?? 'default';
+    this.packs = opts.packs;
     if (!opts.queues[this.defaultQueue]) throw new Error(`AgoraOrchestrator: default queue '${this.defaultQueue}' not configured`);
     for (const [name, q] of Object.entries(opts.queues)) this.store.ensureQueue(name, q.concurrency);
   }
@@ -38,7 +42,7 @@ export class AgoraOrchestrator {
     this.store.markReady(trigger.initialReady(run));
     return run.id;
   }
-  async tick(queue?: string) { return tick(this.store, this.executors, queue ?? this.defaultQueue); }
+  async tick(queue?: string) { return tick(this.store, this.executors, queue ?? this.defaultQueue, this.packs); }
   getStatus(runId?: string): StatusItem[] {
     const items = this.store.getItems(runId);
     const byId = new Map(items.map((i) => [`${i.runId}:${i.id}`, i]));

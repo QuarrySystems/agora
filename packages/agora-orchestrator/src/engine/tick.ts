@@ -1,5 +1,7 @@
 // packages/agora-orchestrator/src/engine/tick.ts
 import type { Executor, RunStateStore } from '../contracts/index.js';
+import { effectTierPolicy } from '../contracts/effect-policy.js';
+import type { PackRegistry } from '../packs/registry.js';
 import { computeNewlyReady } from './dep-resolver.js';
 import { selectRunnable } from './lock-manager.js';
 
@@ -8,6 +10,7 @@ export async function tick(
   store: RunStateStore,
   executors: Record<string, Executor>,
   queue: string,
+  packs?: PackRegistry,
 ): Promise<{ readied: number; fired: number; reconciled: number }> {
   const queueItems = () => store.getItems().filter((i) => i.queue === queue);
 
@@ -41,6 +44,22 @@ export async function tick(
   const runnable = selectRunnable(ready, store.heldLockKeys(), Math.max(0, slots));
   let fired = 0;
   for (const it of runnable) {
+    // Shape resolution + input validation (before acquiring locks to avoid lock leaks).
+    if (it.subagentShape) {
+      const shape = packs?.get(it.subagentShape);
+      if (!shape) {
+        store.setStatus(it.id, 'failed');
+        store.releaseLocks(it.id);
+        continue;
+      }
+      const parsed = shape.inputSchema.safeParse(it.inputs);
+      if (!parsed.success) {
+        store.setStatus(it.id, 'failed');
+        store.releaseLocks(it.id);
+        continue;
+      }
+      void effectTierPolicy(shape.effectTier); // TODO(PR6): enforce EffectPolicy (snapshot/gate) — currently read + discarded
+    }
     if (!store.acquireLocks(it.id, it.resourceLocks)) continue;
     const ex = executors[it.executor];
     if (!ex) throw new Error(`tick: no executor registered for '${it.executor}'`);
