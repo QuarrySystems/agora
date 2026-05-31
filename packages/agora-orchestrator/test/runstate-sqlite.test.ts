@@ -185,4 +185,61 @@ describe('SqliteRunStateStore', () => {
     expect(s.queueConcurrency('nonexistent')).toBe(0);
     s.close();
   });
+
+  it('round-trips subagentShape: set value is preserved', () => {
+    const s = new SqliteRunStateStore();
+    const shapeRun: Run = {
+      id: 'r-shape',
+      queue: 'default',
+      items: [
+        { id: 'item-with-shape', executor: 'fake', inputs: {}, depends_on: [], resourceLocks: [], subagentShape: 'dev.code-edit' },
+      ],
+    };
+    s.saveRun(shapeRun);
+    const items = s.getItems('r-shape');
+    expect(items).toHaveLength(1);
+    expect(items[0].subagentShape).toBe('dev.code-edit');
+    s.close();
+  });
+
+  it('round-trips subagentShape: unset field comes back as undefined (not null)', () => {
+    const s = new SqliteRunStateStore();
+    const noShapeRun: Run = {
+      id: 'r-noshape',
+      queue: 'default',
+      items: [
+        { id: 'item-no-shape', executor: 'fake', inputs: {}, depends_on: [], resourceLocks: [] },
+      ],
+    };
+    s.saveRun(noShapeRun);
+    const items = s.getItems('r-noshape');
+    expect(items).toHaveLength(1);
+    expect(items[0].subagentShape).toBeUndefined();
+    s.close();
+  });
+
+  it('persists and round-trips a failure reason on setStatus', () => {
+    const s = new SqliteRunStateStore();
+    s.saveRun({ id: 'r-reason', queue: 'default', items: [
+      { id: 'item-reason', executor: 'fake', inputs: {}, depends_on: [], resourceLocks: [] },
+    ] });
+    s.setStatus('item-reason', 'failed', 'inputs failed dev.code-edit schema');
+    const items = s.getItems('r-reason');
+    expect(items).toHaveLength(1);
+    expect(items[0].status).toBe('failed');
+    expect(items[0].reason).toBe('inputs failed dev.code-edit schema');
+    s.close();
+  });
+
+  it('setStatus without a reason leaves reason undefined (not null)', () => {
+    const s = new SqliteRunStateStore();
+    s.saveRun({ id: 'r-noreason', queue: 'default', items: [
+      { id: 'item-noreason', executor: 'fake', inputs: {}, depends_on: [], resourceLocks: [] },
+    ] });
+    s.setStatus('item-noreason', 'done');
+    const items = s.getItems('r-noreason');
+    expect(items).toHaveLength(1);
+    expect(items[0].reason).toBeUndefined();
+    s.close();
+  });
 });

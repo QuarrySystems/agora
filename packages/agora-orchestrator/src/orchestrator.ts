@@ -1,5 +1,6 @@
 // packages/agora-orchestrator/src/orchestrator.ts
 import type { Executor, ItemState, Run, RunStateStore, Trigger } from './contracts/index.js';
+import type { PackRegistry } from './packs/registry.js';
 import { tick } from './engine/tick.js';
 
 /** Namespace separator — U+001F UNIT SEPARATOR (not a valid item-id char in practice). */
@@ -17,6 +18,7 @@ export interface AgoraOrchestratorOptions {
   queues: Record<string, QueueConfig>;
   defaultQueue?: string; // defaults to 'default'
   maxAttempts?: number; // defaults to 2 (spec §4)
+  packs?: PackRegistry;
 }
 
 /** method -> privilege tag (mechanism for the §10.6 CLI/MCP split; surfaces land later). */
@@ -32,12 +34,14 @@ export class AgoraOrchestrator {
   private readonly triggers: Record<string, Trigger>;
   private readonly defaultQueue: string;
   private readonly maxAttempts: number;
+  private readonly packs: PackRegistry | undefined;
   constructor(opts: AgoraOrchestratorOptions) {
     this.store = opts.store;
     this.executors = opts.executors;
     this.triggers = opts.triggers;
     this.defaultQueue = opts.defaultQueue ?? 'default';
     this.maxAttempts = opts.maxAttempts ?? 2;
+    this.packs = opts.packs;
     if (!opts.queues[this.defaultQueue]) throw new Error(`AgoraOrchestrator: default queue '${this.defaultQueue}' not configured`);
     for (const [name, q] of Object.entries(opts.queues)) this.store.ensureQueue(name, q.concurrency);
   }
@@ -61,7 +65,7 @@ export class AgoraOrchestrator {
   }
   async tick(queue?: string) {
     // Wrap each executor so the item passed to fire() carries the original (de-namespaced) id.
-    // The store-internal id is namespaced; executors should only see the logical item id.
+    // The store-internal id is namespaced; executors should only ever see the logical item id.
     const wrappedExecutors: Record<string, Executor> = Object.fromEntries(
       Object.entries(this.executors).map(([k, ex]) => [k, {
         id: ex.id,
@@ -69,7 +73,7 @@ export class AgoraOrchestrator {
         reconcile: ex.reconcile.bind(ex),
       }]),
     );
-    return tick(this.store, wrappedExecutors, queue ?? this.defaultQueue, { maxAttempts: this.maxAttempts });
+    return tick(this.store, wrappedExecutors, queue ?? this.defaultQueue, this.packs, { maxAttempts: this.maxAttempts });
   }
   /** Crash recovery: re-ready items left `running` by a crashed process so the run can progress.
    *  A stranded dispatch can't be reconciled by a fresh executor, so we treat it as a consumed

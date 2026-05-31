@@ -9,7 +9,16 @@ import {
   tick,
   RUN_STATUSES,
   DispatchExecutor,
+  PackRegistry,
+  effectTierPolicy,
+  patchSchema,
+  validateShape,
+  devPack,
+  devCodeEdit,
+  devVerify,
+  devRegistry,
   MailboxSubmissionTransport,
+  LocalDirMailbox,
   serve,
 } from '../src/index.js';
 
@@ -46,8 +55,44 @@ describe('barrel smoke test', () => {
     expect(typeof DispatchExecutor).toBe('function');
   });
 
-  it('MailboxSubmissionTransport is defined (class)', () => {
-    expect(MailboxSubmissionTransport).toBeDefined();
+  it('PackRegistry is a function (class)', () => {
+    expect(typeof PackRegistry).toBe('function');
+  });
+
+  it('effectTierPolicy is a function', () => {
+    expect(typeof effectTierPolicy).toBe('function');
+  });
+
+  it('patchSchema is defined (zod schema)', () => {
+    expect(patchSchema).toBeDefined();
+  });
+
+  it('validateShape is a function', () => {
+    expect(typeof validateShape).toBe('function');
+  });
+
+  it('devPack is an array', () => {
+    expect(Array.isArray(devPack)).toBe(true);
+  });
+
+  it('devCodeEdit is defined (SubagentShape)', () => {
+    expect(devCodeEdit).toBeDefined();
+  });
+
+  it('devVerify is defined (SubagentShape)', () => {
+    expect(devVerify).toBeDefined();
+  });
+
+  it('devRegistry is a function', () => {
+    expect(typeof devRegistry).toBe('function');
+  });
+
+  it('MailboxSubmissionTransport is a function (class)', () => {
+    expect(typeof MailboxSubmissionTransport).toBe('function');
+  });
+
+  it('LocalDirMailbox is a function (class)', () => {
+    expect(typeof LocalDirMailbox).toBe('function');
   });
 
   it('serve is a function', () => {

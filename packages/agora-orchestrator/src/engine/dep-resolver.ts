@@ -8,35 +8,20 @@ export function computeNewlyReady(items: ItemState[]): string[] {
     .map((i) => i.id);
 }
 
-/**
- * Returns the full multi-hop downstream closure: every item whose `depends_on`
- * (transitively) includes any id in `rootIds`. Order-independent; excludes the roots themselves.
- */
-export function transitiveDependents(items: ItemState[], rootIds: string[]): string[] {
-  const failed = new Set(rootIds);
-  const result = new Set<string>();
+/** ids of `pending` items with at least one dependency already `failed` or `skipped`
+ *  (they can never ready, so they cascade to `skipped`). Single-pass; the tick re-invokes
+ *  across ticks so transitive chains fully settle. */
+export function computeSkipped(items: ItemState[]): string[] {
+  const status = new Map(items.map((i) => [i.id, i.status]));
+  return items
+    .filter((i) => i.status === 'pending' && i.depends_on.some((d) => {
+      const s = status.get(d);
+      return s === 'failed' || s === 'skipped';
+    }))
+    .map((i) => i.id);
+}
 
-  // Build an adjacency map: depId -> items that depend on it
-  const dependsOnMap = new Map<string, string[]>();
-  for (const item of items) {
-    for (const dep of item.depends_on) {
-      if (!dependsOnMap.has(dep)) dependsOnMap.set(dep, []);
-      dependsOnMap.get(dep)!.push(item.id);
-    }
-  }
-
-  // BFS/DFS from the root failed ids
-  const queue = [...rootIds];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const children = dependsOnMap.get(current) ?? [];
-    for (const child of children) {
-      if (!failed.has(child) && !result.has(child)) {
-        result.add(child);
-        queue.push(child);
-      }
-    }
-  }
-
-  return [...result];
+/** A run/queue is settled when nothing can still move (no pending/ready/running). */
+export function isSettled(items: ItemState[]): boolean {
+  return !items.some((i) => i.status === 'pending' || i.status === 'ready' || i.status === 'running');
 }

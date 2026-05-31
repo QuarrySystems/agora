@@ -16,6 +16,8 @@ export interface WorkItem {
   depends_on: string[];
   /** shared resource keys that serialize contending items. */
   resourceLocks: string[];
+  /** Optional id of a registered SubagentShape; when set, inputs are validated against its inputSchema. */
+  subagentShape?: string;
 }
 
 /** One plan submission: a set of WorkItems + their edges, placed on a queue. */
@@ -31,9 +33,14 @@ export interface ItemState extends WorkItem {
   queue: string;
   status: RunStatus;
   dispatchHash?: string;
-  actor?: string;         // submitter identity (mechanism, not authz)
-  attempts?: number;      // retry counter; absent === 0
-  nextAttemptAt?: number; // epoch ms; item not fired before this. absent === fire now
+  /** Set when status is failed/skipped: why it failed or was cascaded. */
+  reason?: string;
+  /** Submitter identity (mechanism, not authz). */
+  actor?: string;
+  /** Retry counter; absent reads as 0. */
+  attempts?: number;
+  /** Epoch ms; the item is not fired before this (backoff gate). Absent === fire now. */
+  nextAttemptAt?: number;
 }
 
 /** Terminal-ish result for one item (skeleton — intents/signals/audit deferred). */

@@ -2,5 +2,8 @@ export * from './types.js';
 export * from './executor.js';
 export * from './trigger.js';
 export * from './runstate-store.js';
+export * from './core-types.js';
+export * from './subagent-shape.js';
+export * from './effect-policy.js';
 export * from './submission-transport.js';
 export * from './mailbox.js';
