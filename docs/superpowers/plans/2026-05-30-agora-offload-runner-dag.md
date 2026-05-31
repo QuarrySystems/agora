@@ -11,8 +11,8 @@ flowchart TD
     task-storage-transport["task-storage-transport: storage-backed transport<br/>files: packages/agora-orchestrator/src/transport/storage-transport.ts +1 more"]:::done
     task-orchestrator-actor["task-orchestrator-actor: thread actor through submitRun<br/>files: packages/agora-orchestrator/src/orchestrator.ts +1 more"]:::done
     task-retry["task-retry: retry with backoff<br/>files: packages/agora-orchestrator/src/engine/tick.ts +1 more"]:::done
-    task-serve-driver["task-serve-driver: serve driver loop<br/>files: packages/agora-orchestrator/src/serve/driver.ts +1 more"]:::running
-    task-package-exports["task-package-exports: package exports<br/>files: packages/agora-orchestrator/src/index.ts"]
+    task-serve-driver["task-serve-driver: serve driver loop<br/>files: packages/agora-orchestrator/src/serve/driver.ts +1 more"]:::done
+    task-package-exports["task-package-exports: package exports<br/>files: packages/agora-orchestrator/src/index.ts"]:::done
 
     task-submission-transport-contract --> task-storage-transport
     task-submission-transport-contract --> task-serve-driver
@@ -539,7 +539,7 @@ depends_on: [task-submission-transport-contract, task-orchestrator-actor, task-t
 files:
   - packages/agora-orchestrator/src/serve/driver.ts
   - packages/agora-orchestrator/test/serve-driver.test.ts
-status: running
+status: done
 ```
 
 The long-running driver (spec §5, D3): the sole `tick()` caller and DB owner. Each
@@ -623,7 +623,7 @@ depends_on: [task-storage-transport, task-serve-driver]
 is_wiring_task: true
 files:
   - packages/agora-orchestrator/src/index.ts
-status: pending
+status: done
 ```
 
 Expose the new runner surface from the package root. The `SubmissionTransport`
