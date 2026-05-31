@@ -9,3 +9,6 @@ export { AgoraOrchestrator, PRIVILEGE } from './orchestrator.js';
 export type { AgoraOrchestratorOptions, QueueConfig, StatusItem } from './orchestrator.js';
 export { DispatchExecutor } from './executors/dispatch.js';
 export type { DispatchExecutorOptions } from './executors/dispatch.js';
+export { StorageSubmissionTransport } from './transport/storage-transport.js';
+export { serve } from './serve/driver.js';
+export type { ServeOptions } from './serve/driver.js';

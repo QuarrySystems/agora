@@ -9,6 +9,8 @@ import {
   tick,
   RUN_STATUSES,
   DispatchExecutor,
+  StorageSubmissionTransport,
+  serve,
 } from '../src/index.js';
 
 describe('barrel smoke test', () => {
@@ -42,5 +44,13 @@ describe('barrel smoke test', () => {
 
   it('DispatchExecutor is a function (class)', () => {
     expect(typeof DispatchExecutor).toBe('function');
+  });
+
+  it('StorageSubmissionTransport is defined (class)', () => {
+    expect(StorageSubmissionTransport).toBeDefined();
+  });
+
+  it('serve is a function', () => {
+    expect(typeof serve).toBe('function');
   });
 });
