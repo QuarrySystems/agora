@@ -42,6 +42,19 @@ export class AgoraOrchestrator {
     return run.id;
   }
   async tick(queue?: string) { return tick(this.store, this.executors, queue ?? this.defaultQueue, { maxAttempts: this.maxAttempts }); }
+  /** Crash recovery: re-ready items left `running` by a crashed process so the run can progress.
+   *  A stranded dispatch can't be reconciled by a fresh executor, so we treat it as a consumed
+   *  attempt and requeue it (at-least-once). Exhaustion/terminal-failure + skip-cascade are then
+   *  handled by the normal tick flow on the re-dispatch. Returns the number recovered. */
+  recoverStranded(now: number = Date.now()): number {
+    const stranded = this.store.getItems().filter((i) => i.status === 'running');
+    for (const it of stranded) {
+      this.store.releaseLocks(it.id);
+      this.store.bumpAttempt(it.id);
+      this.store.requeue(it.id, now); // status -> 'ready', nextAttemptAt = now (eligible immediately)
+    }
+    return stranded.length;
+  }
   getStatus(runId?: string): StatusItem[] {
     const items = this.store.getItems(runId);
     const byId = new Map(items.map((i) => [`${i.runId}:${i.id}`, i]));

@@ -75,3 +75,52 @@ describe('AgoraOrchestrator', () => {
     store.close();
   });
 });
+
+describe('recoverStranded', () => {
+  it('requeues a running item to ready with bumped attempts and nextAttemptAt=now, returns count 1', () => {
+    const store = new SqliteRunStateStore();
+    const orch = makeOrch(store);
+    orch.submitRun(run);
+    store.setRunning('a', 'hash-crash');
+
+    const now = 1_700_000_000_000;
+    const count = orch.recoverStranded(now);
+
+    expect(count).toBe(1);
+    const itemA = store.getItems().find((i) => i.id === 'a')!;
+    expect(itemA.status).toBe('ready');
+    expect(store.getAttempts('a')).toBe(1);
+    expect(itemA.nextAttemptAt).toBe(now);
+    store.close();
+  });
+
+  it('does not touch non-running items and returns 0 when nothing is running', () => {
+    const store = new SqliteRunStateStore();
+    const orch = makeOrch(store);
+    orch.submitRun(run);
+    // 'a' is ready, 'b' is pending — neither is running
+
+    const now = 1_700_000_000_000;
+    const count = orch.recoverStranded(now);
+
+    expect(count).toBe(0);
+    const st = store.getItems();
+    expect(st.find((i) => i.id === 'a')!.status).toBe('ready');
+    expect(st.find((i) => i.id === 'b')!.status).toBe('pending');
+    store.close();
+  });
+
+  it('is idempotent: calling twice when nothing is running the second time returns 0', () => {
+    const store = new SqliteRunStateStore();
+    const orch = makeOrch(store);
+    orch.submitRun(run);
+    store.setRunning('a', 'hash-crash');
+
+    const now = 1_700_000_000_000;
+    orch.recoverStranded(now); // first call recovers 'a'
+    const count2 = orch.recoverStranded(now); // second call: nothing running
+
+    expect(count2).toBe(0);
+    store.close();
+  });
+});
