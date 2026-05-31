@@ -182,8 +182,8 @@ describe('tick', () => {
   // --- subagentShape resolution tests ---
 
   it('subagentShape: unknown shape id marks item failed, tick does not throw, other items still fire', async () => {
-    // Uses in-memory store to properly round-trip subagentShape (SqliteRunStateStore is columnar and
-    // doesn't persist this optional field; see DONE_WITH_CONCERNS note about sqlite.ts).
+    // In-memory store keeps these tick-level shape-resolution tests focused on tick behavior;
+    // sqlite round-trip of subagentShape is covered in runstate-sqlite.test.ts.
     const store = makeMemStore();
     store.ensureQueue('default', 5);
     store.saveRun({ id: 'rs1', queue: 'default', items: [
