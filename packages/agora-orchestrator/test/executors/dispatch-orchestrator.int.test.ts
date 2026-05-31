@@ -271,21 +271,21 @@ describe('AgoraOrchestrator + DispatchExecutor', () => {
    * Seed the worker output sentinel so reconcile can pick up patchRef.
    * Also seeds the patchRef artifact so it is fetchable.
    */
-  function seedSentinel(
+  async function seedSentinel(
     storage: ReturnType<typeof makeMemoryStorage>,
     namespace: string,
     dispatchId: string,
     patchRef: string,
-  ): void {
+  ): Promise<void> {
     const sentinelUri = buildDispatchRecordUri(namespace, dispatchId, 'output.json');
     const sentinelBytes = new TextEncoder().encode(
       JSON.stringify({ schemaVersion: 1, patchRef }),
     );
     // Directly insert into the blob map via put — the memory stub stores by
     // exact URI and storage.get() returns it unchanged.
-    void storage.put(sentinelUri, sentinelBytes);
+    await storage.put(sentinelUri, sentinelBytes);
     // Also put the artifact blob so patchRef is fetchable (content is opaque).
-    void storage.put(patchRef, new TextEncoder().encode(JSON.stringify({ patch: 'some-diff' })));
+    await storage.put(patchRef, new TextEncoder().encode(JSON.stringify({ patch: 'some-diff' })));
   }
 
   it('surfaces result_ref + manifest_ref end to end and keeps secrets as refs', async () => {
@@ -350,7 +350,7 @@ describe('AgoraOrchestrator + DispatchExecutor', () => {
 
     // Seed the worker output sentinel at the correct dispatch record URI.
     const patchRef = `agora://ns/artifact/patch-1/sha256:abc123def456`;
-    seedSentinel(storage, 'ns', dispatchHash!, patchRef);
+    await seedSentinel(storage, 'ns', dispatchHash!, patchRef);
 
     // Resolve the fake exit (exit code 0 → done).
     resolveExit({
@@ -386,6 +386,7 @@ describe('AgoraOrchestrator + DispatchExecutor', () => {
     // The secretRefs field should be an array of strings (refs, not values).
     expect(Array.isArray(manifest.secretRefs)).toBe(true);
     expect((manifest.secretRefs as string[]).every((r) => typeof r === 'string')).toBe(true);
+    expect((manifest.secretRefs as string[]).length).toBeGreaterThan(0);
 
     runStateStore.close();
   });
