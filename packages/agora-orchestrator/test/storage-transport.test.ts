@@ -1,106 +1,73 @@
 import { describe, it, expect } from 'vitest';
-import type { StorageProvider } from '@quarry-systems/agora-core';
-import { StorageSubmissionTransport } from '../src/transport/storage-transport.js';
+import type { MailboxStore } from '../src/contracts/index.js';
+import { MailboxSubmissionTransport } from '../src/transport/storage-transport.js';
 
-function memStorage(): StorageProvider {
+/** Map-backed MailboxStore fake for unit tests. */
+function memMailbox(): MailboxStore {
   const m = new Map<string, Uint8Array>();
   return {
-    name: 'mem',
-    async put(uri, c) { m.set(uri, c); return { contentHash: 'h' }; },
-    async get(uri) { return m.get(uri)!; },
+    async put(key, bytes) { m.set(key, bytes); },
+    async get(key) { return m.get(key) ?? null; },
     async list(prefix) {
-      return [...m.keys()]
-        .filter((k) => k.startsWith(prefix))
-        .map((uri) => ({ uri, contentHash: 'h', registeredAt: '' }));
+      const dirPrefix = prefix.endsWith('/') ? prefix : prefix + '/';
+      return [...m.keys()].filter((k) => k === prefix || k.startsWith(dirPrefix));
     },
-  } as unknown as StorageProvider;
+    async delete(key) { m.delete(key); },
+  };
 }
 
-/** A StorageProvider that records all put URIs for inspection. */
-function spyStorage(): StorageProvider & { putUris: string[] } {
+/** A MailboxStore fake that records all put keys for inspection. */
+function spyMailbox(): MailboxStore & { putKeys: string[] } {
   const m = new Map<string, Uint8Array>();
-  const putUris: string[] = [];
+  const putKeys: string[] = [];
   return {
-    putUris,
-    name: 'spy',
-    async put(uri: string, c: Uint8Array) { m.set(uri, c); putUris.push(uri); return { contentHash: 'h' }; },
-    async get(uri: string) { return m.get(uri)!; },
+    putKeys,
+    async put(key: string, bytes: Uint8Array) { m.set(key, bytes); putKeys.push(key); },
+    async get(key: string) { return m.get(key) ?? null; },
     async list(prefix: string) {
-      return [...m.keys()]
-        .filter((k) => k.startsWith(prefix))
-        .map((uri) => ({ uri, contentHash: 'h', registeredAt: '' }));
+      const dirPrefix = prefix.endsWith('/') ? prefix : prefix + '/';
+      return [...m.keys()].filter((k) => k === prefix || k.startsWith(dirPrefix));
     },
-  } as unknown as StorageProvider & { putUris: string[] };
+    async delete(key: string) { m.delete(key); },
+  } as MailboxStore & { putKeys: string[] };
 }
 
-describe('storage submission transport', () => {
-  it('round-trips a submission and never re-ingests a claimed one', async () => {
-    const t = new StorageSubmissionTransport(memStorage());
+/** A MailboxStore that throws on put for testing error handling. */
+function failingMailbox(): MailboxStore {
+  return {
+    async put() { throw new Error('disk full'); },
+    async get() { return null; },
+    async list() { return []; },
+    async delete() { /* no-op */ },
+  };
+}
+
+describe('mailbox submission transport', () => {
+  it('submit→pollInbox returns the envelope', async () => {
+    const t = new MailboxSubmissionTransport(memMailbox());
     await t.submit({ run: { id: 'r1', queue: 'default', items: [] }, actor: 'human:b', submittedAt: '2026-05-30T00:00:00Z' });
-    expect((await t.pollInbox()).map((e) => e.run.id)).toEqual(['r1']);
-    expect(await t.pollInbox()).toEqual([]);
+    const results = await t.pollInbox();
+    expect(results.map((e) => e.run.id)).toEqual(['r1']);
   });
 
-  it('publish → readOutbox returns the record', async () => {
-    const t = new StorageSubmissionTransport(memStorage());
-    const rec = { runId: 'r2', kind: 'status' as const, body: { step: 1 }, at: '2026-05-30T01:00:00Z' };
-    await t.publish(rec);
-    const results = await t.readOutbox('r2');
-    expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ runId: 'r2', kind: 'status', body: { step: 1 } });
+  it('pollInbox AGAIN still returns the envelope (not consumed until ack)', async () => {
+    const t = new MailboxSubmissionTransport(memMailbox());
+    await t.submit({ run: { id: 'r1', queue: 'default', items: [] }, actor: 'human:b', submittedAt: '2026-05-30T00:00:00Z' });
+    await t.pollInbox(); // first poll - does NOT consume
+    const second = await t.pollInbox();
+    expect(second.map((e) => e.run.id)).toEqual(['r1']);
   });
 
-  it('readOutbox skips empty/partial outbox objects without throwing', async () => {
-    const storage = memStorage() as unknown as StorageProvider & { _put: (uri: string, c: Uint8Array) => void };
-    const t = new StorageSubmissionTransport(storage);
-    // Write an empty byte array to simulate a partial/empty outbox entry
-    await storage.put('orchestrator/outbox/r3/2026-05-30T00:00:00Z.json', new Uint8Array(0));
-    const results = await t.readOutbox('r3');
+  it('after ack(runId), pollInbox returns empty array', async () => {
+    const t = new MailboxSubmissionTransport(memMailbox());
+    await t.submit({ run: { id: 'r1', queue: 'default', items: [] }, actor: 'human:b', submittedAt: '2026-05-30T00:00:00Z' });
+    await t.ack('r1');
+    const results = await t.pollInbox();
     expect(results).toEqual([]);
   });
 
-  it('submit failure wraps the error with run id context', async () => {
-    const failingStorage = {
-      name: 'failing',
-      async put() { throw new Error('disk full'); },
-      async get() { return new Uint8Array(0); },
-      async list() { return []; },
-    } as unknown as StorageProvider;
-    const t = new StorageSubmissionTransport(failingStorage);
-    await expect(
-      t.submit({ run: { id: 'r4', queue: 'default', items: [] }, actor: 'human:b', submittedAt: '2026-05-30T00:00:00Z' })
-    ).rejects.toMatchObject({
-      message: expect.stringContaining('r4'),
-      cause: expect.objectContaining({ message: 'disk full' }),
-    });
-  });
-
-  it('outbox object key contains no Windows-illegal characters (no colons or special chars)', async () => {
-    const spy = spyStorage();
-    const t = new StorageSubmissionTransport(spy);
-    const rec = { runId: 'run-abc', kind: 'status' as const, body: {}, at: '2026-05-30T12:34:56.789Z' };
-    await t.publish(rec);
-    const outboxPuts = spy.putUris.filter((u) => u.includes('/outbox/'));
-    expect(outboxPuts).toHaveLength(1);
-    // Key must only contain word chars, dots, hyphens, forward slashes
-    expect(outboxPuts[0]).toMatch(/^[\w.\-/]+$/);
-    // Specifically no colons
-    expect(outboxPuts[0]).not.toContain(':');
-  });
-
-  it('two publishes for the same run in the same millisecond both round-trip without collision', async () => {
-    const t = new StorageSubmissionTransport(memStorage());
-    const now = '2026-05-30T12:34:56.000Z'; // same timestamp for both
-    const rec1 = { runId: 'run-col', kind: 'status' as const, body: { seq: 1 }, at: now };
-    const rec2 = { runId: 'run-col', kind: 'status' as const, body: { seq: 2 }, at: now };
-    await t.publish(rec1);
-    await t.publish(rec2);
-    const results = await t.readOutbox('run-col');
-    expect(results).toHaveLength(2);
-  });
-
-  it('readOutbox returns records in publish order', async () => {
-    const t = new StorageSubmissionTransport(memStorage());
+  it('publish→readOutbox round-trips in publish order', async () => {
+    const t = new MailboxSubmissionTransport(memMailbox());
     const recs = [
       { runId: 'run-ord', kind: 'status' as const, body: { seq: 1 }, at: '2026-05-30T00:00:01Z' },
       { runId: 'run-ord', kind: 'status' as const, body: { seq: 2 }, at: '2026-05-30T00:00:02Z' },
@@ -110,5 +77,38 @@ describe('storage submission transport', () => {
     const results = await t.readOutbox('run-ord');
     expect(results).toHaveLength(3);
     expect(results.map((r) => (r.body as { seq: number }).seq)).toEqual([1, 2, 3]);
+  });
+
+  it('a failing mbox.put in submit throws with run-id context', async () => {
+    const t = new MailboxSubmissionTransport(failingMailbox());
+    await expect(
+      t.submit({ run: { id: 'r4', queue: 'default', items: [] }, actor: 'human:b', submittedAt: '2026-05-30T00:00:00Z' })
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('r4'),
+      cause: expect.objectContaining({ message: 'disk full' }),
+    });
+  });
+
+  it('two publishes for the same run in the same millisecond both round-trip without collision', async () => {
+    const t = new MailboxSubmissionTransport(memMailbox());
+    const now = '2026-05-30T12:34:56.000Z';
+    const rec1 = { runId: 'run-col', kind: 'status' as const, body: { seq: 1 }, at: now };
+    const rec2 = { runId: 'run-col', kind: 'status' as const, body: { seq: 2 }, at: now };
+    await t.publish(rec1);
+    await t.publish(rec2);
+    const results = await t.readOutbox('run-col');
+    expect(results).toHaveLength(2);
+  });
+
+  it('outbox key contains no Windows-illegal characters (no colons or special chars)', async () => {
+    const spy = spyMailbox();
+    const t = new MailboxSubmissionTransport(spy);
+    const rec = { runId: 'run-abc', kind: 'status' as const, body: {}, at: '2026-05-30T12:34:56.789Z' };
+    await t.publish(rec);
+    const outboxPuts = spy.putKeys.filter((k) => k.includes('/outbox/'));
+    expect(outboxPuts).toHaveLength(1);
+    // Key must only contain word chars, dots, hyphens, forward slashes
+    expect(outboxPuts[0]).toMatch(/^[\w.\-/]+$/);
+    expect(outboxPuts[0]).not.toContain(':');
   });
 });

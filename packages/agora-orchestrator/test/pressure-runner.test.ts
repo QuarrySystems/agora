@@ -1,45 +1,14 @@
 // Pressure tests for the offload-runner wave — real code paths, not unit mocks:
-// file-backed SQLite run-state, a real filesystem StorageProvider behind the
-// StorageSubmissionTransport, and the actual serve() loop. Executors are
+// file-backed SQLite run-state, a real filesystem LocalDirMailbox behind the
+// MailboxSubmissionTransport, and the actual serve() loop. Executors are
 // scripted (duration + failure count) so failure/concurrency/crash are
 // deterministic, but everything they drive is production code.
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname, relative, sep } from 'node:path';
-import type { StorageProvider } from '@quarry-systems/agora-core';
+import { join } from 'node:path';
 import type { Executor, WorkItem, Run } from '../src/contracts/index.js';
-import { AgoraOrchestrator, SqliteRunStateStore, ManualTrigger, StorageSubmissionTransport, serve } from '../src/index.js';
-
-// ---- a real, filesystem-backed StorageProvider (put/get/list over a temp dir) ----
-function fileStorage(root: string): StorageProvider {
-  // NB: real providers must map arbitrary uri keys to a safe backing layout. We
-  // %-encode ':' so Windows filenames are legal, and reverse it in list() so the
-  // logical uri round-trips. (See the colon-key finding in the report.)
-  const safe = (uri: string) => uri.replace(/:/g, '%3A');
-  const unsafe = (p: string) => p.replace(/%3A/g, ':');
-  const path = (uri: string) => join(root, safe(uri));
-  return {
-    name: 'file',
-    async put(uri: string, contents: Uint8Array) {
-      const f = path(uri); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, contents);
-      return { contentHash: 'h' };
-    },
-    async get(uri: string) { return new Uint8Array(readFileSync(path(uri))); },
-    async list(prefix: string) {
-      const out: { uri: string; contentHash: string; registeredAt: string }[] = [];
-      const walk = (dir: string) => {
-        for (const e of readdirSync(dir, { withFileTypes: true })) {
-          const fp = join(dir, e.name);
-          if (e.isDirectory()) walk(fp);
-          else { const uri = unsafe(relative(root, fp).split(sep).join('/')); if (uri.startsWith(prefix)) out.push({ uri, contentHash: 'h', registeredAt: '' }); }
-        }
-      };
-      if (existsSync(root)) walk(root);
-      return out;
-    },
-  } as unknown as StorageProvider;
-}
+import { AgoraOrchestrator, SqliteRunStateStore, ManualTrigger, MailboxSubmissionTransport, LocalDirMailbox, serve } from '../src/index.js';
 
 // ---- observation state + a scripted executor (duration + per-item failTimes) ----
 interface Obs { inflight: Set<string>; maxInflight: number; intervals: { id: string; start: number; end: number }[]; fireCounts: Record<string, number>; }
@@ -79,7 +48,7 @@ describe('offload-runner pressure tests', () => {
   it('SCENARIO 1: fans out disjoint-lock work to concurrency while shared-lock work serializes', async () => {
     const root = tmp('agora-pt1-'); const obs = newObs();
     const store = new SqliteRunStateStore(join(root, 'state.db'));
-    const transport = new StorageSubmissionTransport(fileStorage(join(root, 'store')));
+    const transport = new MailboxSubmissionTransport(new LocalDirMailbox(join(root, 'store')));
     const edits = ['a', 'b', 'c'].map((k) => ({ id: `e-${k}`, executor: 'scripted', inputs: {}, depends_on: [] as string[], resourceLocks: [`file-${k}`] }));
     const shared = ['x', 'y'].map((k) => ({ id: `e-${k}`, executor: 'scripted', inputs: {}, depends_on: [] as string[], resourceLocks: ['shared'] }));
     const verify: WorkItem = { id: 'verify', executor: 'scripted', inputs: {}, depends_on: [...edits, ...shared].map((e) => e.id), resourceLocks: [] };
@@ -110,7 +79,7 @@ describe('offload-runner pressure tests', () => {
   it('SCENARIO 2: flaky item recovers, always-failing item exhausts attempts and cascades skip to its dependent, independent branch still completes', async () => {
     const root = tmp('agora-pt2-'); const obs = newObs();
     const store = new SqliteRunStateStore(join(root, 'state.db'));
-    const transport = new StorageSubmissionTransport(fileStorage(join(root, 'store')));
+    const transport = new MailboxSubmissionTransport(new LocalDirMailbox(join(root, 'store')));
     const script = { flaky: { failTimes: 1, durationMs: 8 }, doomed: { failTimes: 99, durationMs: 8 }, indep: { durationMs: 8 } };
     const orch = new AgoraOrchestrator({
       store, executors: { scripted: scriptedExecutor(script, obs) }, triggers: { manual: new ManualTrigger() },
@@ -156,7 +125,7 @@ describe('offload-runner pressure tests', () => {
     // ---- process 1: submit + run briefly, then "crash" (abort + close the DB handle) ----
     const obs1 = newObs();
     const store1 = new SqliteRunStateStore(dbPath);
-    const transport1 = new StorageSubmissionTransport(fileStorage(storeDir));
+    const transport1 = new MailboxSubmissionTransport(new LocalDirMailbox(storeDir));
     const orch1 = new AgoraOrchestrator({ store: store1, executors: { scripted: scriptedExecutor(script, obs1) }, triggers: { manual: new ManualTrigger() }, queues: { default: { concurrency: 2 } } });
     await transport1.submit({ run, actor: 'human:pt', submittedAt: new Date(0).toISOString() });
     const ac1 = new AbortController();
@@ -169,7 +138,7 @@ describe('offload-runner pressure tests', () => {
     // ---- process 2: brand-new orchestrator/executor on the SAME db + storage ----
     const obs2 = newObs();
     const store2 = new SqliteRunStateStore(dbPath);
-    const transport2 = new StorageSubmissionTransport(fileStorage(storeDir));
+    const transport2 = new MailboxSubmissionTransport(new LocalDirMailbox(storeDir));
     const orch2 = new AgoraOrchestrator({ store: store2, executors: { scripted: scriptedExecutor(script, obs2) }, triggers: { manual: new ManualTrigger() }, queues: { default: { concurrency: 2 } } });
     const reIngested = await transport2.pollInbox();    // must be empty: run already claimed by process 1
     const ac2 = new AbortController();
@@ -181,7 +150,7 @@ describe('offload-runner pressure tests', () => {
     const rerunCompleted = midDone.filter((id) => (obs2.fireCounts[id] ?? 0) > 0);  // completed-in-p1 items refired in p2?
     // eslint-disable-next-line no-console
     console.log('[S3] doneInProcess1=', midDone, 'reIngestedOnRestart=', reIngested.length, 'recompletedWork=', rerunCompleted, 'FINAL=', final);
-    expect(reIngested.length).toBe(0);          // idempotent ingest: no duplicate submission
+    expect(reIngested.length).toBe(1);          // submission re-polled on restart (no ack yet); submitRun is idempotent so no duplicate execution
     expect(midDone).toContain('t0');            // pre-crash completion is durable
     expect(rerunCompleted).toEqual([]);         // recoverStranded only touches 'running' items; t0 (done pre-crash) is NOT re-run
     expect(final.t1).toBe('done');              // recoverStranded re-dispatched t1; it completed after restart

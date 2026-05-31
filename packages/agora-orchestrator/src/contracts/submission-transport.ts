@@ -21,6 +21,7 @@ export interface OutboxRecord {
 export interface SubmissionTransport {
   submit(env: SubmissionEnvelope): Promise<string>;   // client → inbox; returns run id
   pollInbox(): Promise<SubmissionEnvelope[]>;          // service: claim new, un-ingested submissions
+  ack(runId: string): Promise<void>;                   // consume (delete) an ingested submission
   publish(rec: OutboxRecord): Promise<void>;           // service → outbox
   readOutbox(runId: string): Promise<OutboxRecord[]>;  // client: read status/completion
 }
