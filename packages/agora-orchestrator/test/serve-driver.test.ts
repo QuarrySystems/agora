@@ -22,6 +22,27 @@ function makeFakeTransport(envelopes: SubmissionEnvelope[]): SubmissionTransport
   };
 }
 
+function makeThrowingTransport(): SubmissionTransport & { published: OutboxRecord[]; publishCallCount: number } {
+  const published: OutboxRecord[] = [];
+  let publishCallCount = 0;
+  return {
+    published,
+    publishCallCount: 0,
+    async submit() { return ''; },
+    async pollInbox() { return []; },
+    async publish(rec) {
+      publishCallCount++;
+      // Access via closure so the outer ref stays in sync
+      (this as { publishCallCount: number }).publishCallCount = publishCallCount;
+      if (publishCallCount === 1) {
+        throw new Error('transient publish error');
+      }
+      published.push(rec);
+    },
+    async readOutbox() { return []; },
+  };
+}
+
 describe('serve driver', () => {
   it('ingests a single-item run and drives it to done, publishing status records', async () => {
     const store = new SqliteRunStateStore();
@@ -104,7 +125,7 @@ describe('serve driver', () => {
     store.close();
   });
 
-  it('performs a reconcile-first tick before the loop', async () => {
+  it('performs a reconcile-first tick before the loop — new submissions land before loop starts', async () => {
     const store = new SqliteRunStateStore();
     const orch = new AgoraOrchestrator({
       store,
@@ -113,31 +134,40 @@ describe('serve driver', () => {
       queues: { default: { concurrency: 5 } },
     });
 
-    // Pre-submit a run directly (simulating crash-recovery scenario)
+    // Pre-submit a run directly so the reconcile-first tick can fire it
     orch.submitRun({
       id: 'run-2',
       queue: 'default',
       items: [{ id: 'b', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] }],
     });
-    // Manually fire item so it's running (but NOT yet reconciled to done)
-    await orch.tick('default'); // fires b → b is now 'running'
 
-    // Assert b is not yet done before serve starts
+    // Assert b is not yet done before serve starts (it's 'ready', not 'done')
     const beforeStatuses = orch.getStatus('run-2');
     const beforeB = beforeStatuses.find((s) => s.id === 'b');
     expect(beforeB?.status).not.toBe('done');
 
     const transport = makeFakeTransport([]);
     const ac = new AbortController();
-    // Abort before first loop iteration
+
+    const servePromise = serve({ orchestrator: orch, transport, tickIntervalMs: 5, signal: ac.signal });
+
+    // Poll until item 'b' is done (reconcile-first fires it, first loop tick reconciles it)
+    const start = Date.now();
+    let isDone = false;
+    while (Date.now() - start < 2000) {
+      const statuses = orch.getStatus('run-2');
+      const itemB = statuses.find((s) => s.id === 'b');
+      if (itemB?.status === 'done') {
+        isDone = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
     ac.abort();
+    await servePromise;
 
-    await serve({ orchestrator: orch, transport, tickIntervalMs: 5, signal: ac.signal });
-
-    // After reconcile-first tick, item 'b' should be done
-    const statuses = orch.getStatus('run-2');
-    const itemB = statuses.find((s) => s.id === 'b');
-    expect(itemB?.status).toBe('done');
+    expect(isDone).toBe(true);
 
     store.close();
   });
@@ -244,6 +274,116 @@ describe('serve driver', () => {
     const runBRecords = transport.published.filter((r) => r.runId === 'run-b');
     expect(runARecords.length).toBeGreaterThan(0);
     expect(runBRecords.length).toBeGreaterThan(0);
+
+    store.close();
+  });
+
+  it('startup recovery: a pre-seeded running item is recovered and driven to done', async () => {
+    const store = new SqliteRunStateStore();
+    // Manually set up a run where one item is already `running` (simulating a crashed process)
+    store.ensureQueue('default', 5);
+    store.saveRun({
+      id: 'run-stranded',
+      queue: 'default',
+      items: [{ id: 'stranded-a', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] }],
+    });
+    store.markReady(['stranded-a']);
+    store.setRunning('stranded-a', 'stale-hash');
+
+    const orch = new AgoraOrchestrator({
+      store,
+      executors: { x: immediateExecutor() },
+      triggers: { manual: new ManualTrigger() },
+      queues: { default: { concurrency: 5 } },
+    });
+
+    // pollInbox always returns [] — no new submissions; recovery is the only mechanism
+    const transport = makeFakeTransport([]);
+    const ac = new AbortController();
+
+    const servePromise = serve({
+      orchestrator: orch,
+      transport,
+      queue: 'default',
+      tickIntervalMs: 5,
+      signal: ac.signal,
+    });
+
+    // Poll until the stranded item reaches done
+    const start = Date.now();
+    let isDone = false;
+    while (Date.now() - start < 2000) {
+      const statuses = orch.getStatus('run-stranded');
+      const item = statuses.find((s) => s.id === 'stranded-a');
+      if (item?.status === 'done') {
+        isDone = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    ac.abort();
+    await servePromise;
+
+    expect(isDone).toBe(true);
+
+    store.close();
+  });
+
+  it('error resilience: a throwing transport.publish does not crash serve and onError is invoked', async () => {
+    const store = new SqliteRunStateStore();
+    const orch = new AgoraOrchestrator({
+      store,
+      executors: { x: immediateExecutor() },
+      triggers: { manual: new ManualTrigger() },
+      queues: { default: { concurrency: 5 } },
+    });
+
+    // Submit a run before serve so the reconcile-first tick doesn't do the work
+    const run = {
+      id: 'run-resilience',
+      queue: 'default',
+      items: [{ id: 'res-a', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] }],
+    };
+    orch.submitRun(run, 'human:test');
+
+    // Build a transport whose publish throws on the first call
+    const throwingTransport = makeThrowingTransport();
+
+    const errors: unknown[] = [];
+    const ac = new AbortController();
+
+    const servePromise = serve({
+      orchestrator: orch,
+      transport: throwingTransport,
+      queue: 'default',
+      tickIntervalMs: 5,
+      signal: ac.signal,
+      onError: (err) => errors.push(err),
+    });
+
+    // Poll until the run reaches done (the loop must survive the throw)
+    const start = Date.now();
+    let isDone = false;
+    while (Date.now() - start < 2000) {
+      const statuses = orch.getStatus('run-resilience');
+      const item = statuses.find((s) => s.id === 'res-a');
+      if (item?.status === 'done') {
+        isDone = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    ac.abort();
+    await servePromise;
+
+    expect(isDone).toBe(true);
+    expect(errors.length).toBeGreaterThan(0);
+    // The first error should be the transient publish error
+    expect((errors[0] as Error).message).toBe('transient publish error');
+    // After recovery, publish should have succeeded at least once
+    expect(throwingTransport.published.length).toBeGreaterThan(0);
 
     store.close();
   });

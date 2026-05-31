@@ -9,6 +9,7 @@ export interface ServeOptions {
   tickIntervalMs?: number;
   signal?: AbortSignal;
   now?: () => number;
+  onError?: (err: unknown) => void;
 }
 
 /** Resolves after `ms` milliseconds, or immediately if the signal is already aborted or fires. */
@@ -28,30 +29,37 @@ export async function serve(opts: ServeOptions): Promise<void> {
   const queue = opts.queue ?? 'default';
   const interval = opts.tickIntervalMs ?? 2000;
 
+  // Crash recovery: re-ready items left `running` by a crashed process
+  opts.orchestrator.recoverStranded(opts.now?.() ?? Date.now());
+
   // Reconcile-first: one tick before the main loop
   await opts.orchestrator.tick(queue);
 
   while (!opts.signal?.aborted) {
-    for (const env of await opts.transport.pollInbox()) {
-      opts.orchestrator.submitRun(env.run, env.actor);
-    }
-    await opts.orchestrator.tick(queue);
-
-    const at = new Date(opts.now?.() ?? Date.now()).toISOString();
-
-    // Group status items by runId — one OutboxRecord per run
-    const byRun = new Map<string, unknown[]>();
-    for (const s of opts.orchestrator.getStatus()) {
-      let arr = byRun.get(s.runId);
-      if (!arr) {
-        arr = [];
-        byRun.set(s.runId, arr);
+    try {
+      for (const env of await opts.transport.pollInbox()) {
+        opts.orchestrator.submitRun(env.run, env.actor);
       }
-      arr.push(s);
-    }
+      await opts.orchestrator.tick(queue);
 
-    for (const [runId, items] of byRun) {
-      await opts.transport.publish({ runId, kind: 'status', body: items, at });
+      const at = new Date(opts.now?.() ?? Date.now()).toISOString();
+
+      // Group status items by runId — one OutboxRecord per run
+      const byRun = new Map<string, unknown[]>();
+      for (const s of opts.orchestrator.getStatus()) {
+        let arr = byRun.get(s.runId);
+        if (!arr) {
+          arr = [];
+          byRun.set(s.runId, arr);
+        }
+        arr.push(s);
+      }
+
+      for (const [runId, items] of byRun) {
+        await opts.transport.publish({ runId, kind: 'status', body: items, at });
+      }
+    } catch (err) {
+      opts.onError?.(err);
     }
 
     await sleep(interval, opts.signal);
