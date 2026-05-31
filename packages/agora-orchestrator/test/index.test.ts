@@ -9,6 +9,11 @@ import {
   tick,
   RUN_STATUSES,
   DispatchExecutor,
+  PackRegistry,
+  effectTierPolicy,
+  patchSchema,
+  validateShape,
+  devPack,
 } from '../src/index.js';
 
 describe('barrel smoke test', () => {
@@ -42,5 +47,25 @@ describe('barrel smoke test', () => {
 
   it('DispatchExecutor is a function (class)', () => {
     expect(typeof DispatchExecutor).toBe('function');
+  });
+
+  it('PackRegistry is a function (class)', () => {
+    expect(typeof PackRegistry).toBe('function');
+  });
+
+  it('effectTierPolicy is a function', () => {
+    expect(typeof effectTierPolicy).toBe('function');
+  });
+
+  it('patchSchema is defined (zod schema)', () => {
+    expect(patchSchema).toBeDefined();
+  });
+
+  it('validateShape is a function', () => {
+    expect(typeof validateShape).toBe('function');
+  });
+
+  it('devPack is an array', () => {
+    expect(Array.isArray(devPack)).toBe(true);
   });
 });
