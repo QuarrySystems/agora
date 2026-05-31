@@ -5,11 +5,11 @@ created: 2026-05-31
 
 ```mermaid
 flowchart TD
-    task-fs-safe-keys["task-fs-safe-keys: filesystem-safe outbox keys<br/>files: src/transport/storage-transport.ts +1"]
-    task-skip-cascade["task-skip-cascade: skip dependents of failed<br/>files: src/engine/tick.ts +3"]
-    task-recover-stranded["task-recover-stranded: recover running items at boot<br/>files: src/orchestrator.ts +1"]
-    task-serve-hardening["task-serve-hardening: startup recover + loop error guard<br/>files: src/serve/driver.ts +1"]
-    task-pressure-proof["task-pressure-proof: pressure tests assert fixed behavior<br/>files: test/pressure-runner.test.ts"]
+    task-fs-safe-keys["task-fs-safe-keys: filesystem-safe outbox keys<br/>files: src/transport/storage-transport.ts +1"]:::done
+    task-skip-cascade["task-skip-cascade: skip dependents of failed<br/>files: src/engine/tick.ts +3"]:::done
+    task-recover-stranded["task-recover-stranded: recover running items at boot<br/>files: src/orchestrator.ts +1"]:::done
+    task-serve-hardening["task-serve-hardening: startup recover + loop error guard<br/>files: src/serve/driver.ts +1"]:::done
+    task-pressure-proof["task-pressure-proof: pressure tests assert fixed behavior<br/>files: test/pressure-runner.test.ts"]:::done
 
     task-skip-cascade --> task-recover-stranded
     task-recover-stranded --> task-serve-hardening
@@ -47,6 +47,17 @@ Findings → tasks:
 - `task-pressure-proof` re-asserts the FIXED behavior (S2 dependent now `skipped`;
   S3 run now completes after restart), turning the pressure tests green.
 
+**Rescope (2026-05-31):** `task-fs-safe-keys` landed (`eaa7299`) but it addressed a
+*test-only* symptom. Investigation showed the shipped `StorageProvider` impls
+(`agora-storage-local`/`-s3`) are **content-addressed with a structured `agora://`
+URI scheme** — they are NOT the generic prefix-listable key→bytes store the
+`SubmissionTransport` assumes, so the transport currently runs only against test
+fakes. The real fix is a dedicated **inbox/outbox mailbox seam** (generic keys +
+prefix list + delete) with a real local-dir impl — split out as its own
+design+build (`offload-mailbox`), separate from these engine fixes. The colon-key
+commit is kept (the counter key is correct regardless). The three remaining tasks
+here are engine/orchestrator-level and storage-independent.
+
 ## Tasks
 
 ## Task: filesystem-safe outbox keys
@@ -57,7 +68,7 @@ depends_on: []
 files:
   - packages/agora-orchestrator/src/transport/storage-transport.ts
   - packages/agora-orchestrator/test/storage-transport.test.ts
-status: pending
+status: done
 ```
 
 The `outbox(id, at)` key uses the raw ISO timestamp (`…/<id>/2026-…:…:….json`).
@@ -86,7 +97,7 @@ files:
   - packages/agora-orchestrator/src/engine/dep-resolver.ts
   - packages/agora-orchestrator/test/tick.test.ts
   - packages/agora-orchestrator/test/orchestrator.test.ts
-status: pending
+status: done
 ```
 
 When an item reaches terminal `failed` in `tick`, mark its **transitive** same-run
@@ -118,7 +129,7 @@ depends_on: [task-skip-cascade]
 files:
   - packages/agora-orchestrator/src/orchestrator.ts
   - packages/agora-orchestrator/test/orchestrator.test.ts
-status: pending
+status: done
 ```
 
 Add `AgoraOrchestrator.recoverStranded(now?: number): number` for crash recovery:
@@ -148,7 +159,7 @@ depends_on: [task-recover-stranded]
 files:
   - packages/agora-orchestrator/src/serve/driver.ts
   - packages/agora-orchestrator/test/serve-driver.test.ts
-status: pending
+status: done
 ```
 
 Two robustness fixes to the daemon: (1) call `orchestrator.recoverStranded()` at
@@ -176,7 +187,7 @@ id: task-pressure-proof
 depends_on: [task-fs-safe-keys, task-skip-cascade, task-serve-hardening]
 files:
   - packages/agora-orchestrator/test/pressure-runner.test.ts
-status: pending
+status: done
 ```
 
 Update the three pressure scenarios to assert the hardened behavior, proving the
