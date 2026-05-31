@@ -19,15 +19,15 @@ describe('submitRun attribution', () => {
     const store = new SqliteRunStateStore();
     const orch = new AgoraOrchestrator({ store, executors: {}, triggers: { manual: new ManualTrigger() }, queues: { default: { concurrency: 1 } } });
     orch.submitRun({ id: 'r', queue: 'default', items: [ { id: 'a', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] } ] }, 'agent:claude');
-    expect(store.getActor('a')).toBe('agent:claude');
-    expect(orch.getStatus().find((s) => s.id === 'a')?.runId).toBe('r');
+    expect(store.getActor('r\x1fa')).toBe('agent:claude'); // namespaced id in store
+    expect(orch.getStatus().find((s) => s.id === 'a')?.runId).toBe('r'); // de-namespaced output
   });
   it('submitRun without actor still works', () => {
     const store = new SqliteRunStateStore();
     const orch = new AgoraOrchestrator({ store, executors: {}, triggers: { manual: new ManualTrigger() }, queues: { default: { concurrency: 1 } } });
     orch.submitRun({ id: 'r2', queue: 'default', items: [ { id: 'b', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] } ] });
-    expect(store.getActor('b')).toBeUndefined();
-    expect(orch.getStatus().find((s) => s.id === 'b')?.runId).toBe('r2');
+    expect(store.getActor('r2\x1fb')).toBeUndefined(); // namespaced id in store
+    expect(orch.getStatus().find((s) => s.id === 'b')?.runId).toBe('r2'); // de-namespaced output
   });
 });
 
@@ -92,15 +92,15 @@ describe('recoverStranded', () => {
     const store = new SqliteRunStateStore();
     const orch = makeOrch(store);
     orch.submitRun(run);
-    store.setRunning('a', 'hash-crash');
+    store.setRunning('r\x1fa', 'hash-crash'); // namespaced id in store
 
     const now = 1_700_000_000_000;
     const count = orch.recoverStranded(now);
 
     expect(count).toBe(1);
-    const itemA = store.getItems().find((i) => i.id === 'a')!;
+    const itemA = store.getItems().find((i) => i.id === 'r\x1fa')!; // namespaced in store
     expect(itemA.status).toBe('ready');
-    expect(store.getAttempts('a')).toBe(1);
+    expect(store.getAttempts('r\x1fa')).toBe(1); // namespaced id in store
     expect(itemA.nextAttemptAt).toBe(now);
     store.close();
   });
@@ -116,8 +116,8 @@ describe('recoverStranded', () => {
 
     expect(count).toBe(0);
     const st = store.getItems();
-    expect(st.find((i) => i.id === 'a')!.status).toBe('ready');
-    expect(st.find((i) => i.id === 'b')!.status).toBe('pending');
+    expect(st.find((i) => i.id === 'r\x1fa')!.status).toBe('ready'); // namespaced in store
+    expect(st.find((i) => i.id === 'r\x1fb')!.status).toBe('pending'); // namespaced in store
     store.close();
   });
 
@@ -125,7 +125,7 @@ describe('recoverStranded', () => {
     const store = new SqliteRunStateStore();
     const orch = makeOrch(store);
     orch.submitRun(run);
-    store.setRunning('a', 'hash-crash');
+    store.setRunning('r\x1fa', 'hash-crash'); // namespaced id in store
 
     const now = 1_700_000_000_000;
     orch.recoverStranded(now); // first call recovers 'a'
@@ -133,5 +133,30 @@ describe('recoverStranded', () => {
 
     expect(count2).toBe(0);
     store.close();
+  });
+});
+
+describe('run-scoped item ids', () => {
+  it('two runs can share an item id without colliding (run-scoped ids)', () => {
+    const store = new SqliteRunStateStore();
+    const orch = new AgoraOrchestrator({ store, executors: {}, triggers: { manual: new ManualTrigger() }, queues: { default: { concurrency: 2 } } });
+    const mk = (rid: string) => ({ id: rid, queue: 'default', items: [ { id: 't', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] } ] });
+    orch.submitRun(mk('r1')); orch.submitRun(mk('r2')); // both item 't' — must NOT throw
+    expect(orch.getStatus('r1').map((s) => s.id)).toEqual(['t']); // de-namespaced output
+    expect(orch.getStatus('r2').map((s) => s.id)).toEqual(['t']);
+  });
+
+  it('within-run dependency blockedBy shows de-namespaced ids', () => {
+    const store = new SqliteRunStateStore();
+    const orch = new AgoraOrchestrator({ store, executors: {}, triggers: { manual: new ManualTrigger() }, queues: { default: { concurrency: 2 } } });
+    const depRun = { id: 'dep-run', queue: 'default', items: [
+      { id: 'step1', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] },
+      { id: 'step2', executor: 'x', inputs: {}, depends_on: ['step1'], resourceLocks: [] },
+    ]};
+    orch.submitRun(depRun);
+    const st = orch.getStatus('dep-run');
+    expect(st.find((s) => s.id === 'step1')!.status).toBe('ready');
+    expect(st.find((s) => s.id === 'step2')!.blockedBy).toEqual(['step1']); // de-namespaced
+    expect(st.find((s) => s.id === 'step2')!.runId).toBe('dep-run');
   });
 });
