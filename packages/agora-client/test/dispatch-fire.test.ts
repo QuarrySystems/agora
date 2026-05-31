@@ -137,6 +137,49 @@ describe('client.dispatch.fire', () => {
     expect(inflight.dispatchId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it('exposes resolved refs + secret references (not values) on the in-flight dispatch', async () => {
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:abc123', { name: 's' });
+
+    const compute: ComputeProvider = {
+      name: 'fake-compute',
+      async run(_spec, _ctx) {
+        return { providerTaskId: 'prov-resolved-test' };
+      },
+      async awaitExit(_handle, _ctx): Promise<TaskExit> {
+        return {
+          exitCode: 0,
+          startedAt: new Date(0),
+          finishedAt: new Date(1000),
+          stdout: 'done',
+          stderr: '',
+        };
+      },
+    };
+
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: compute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+
+    const flight = await client.dispatch.fire({
+      subagent: 's',
+      target: 'prod',
+      workerImage: 'ghcr.io/x/worker@sha256:abc',
+    });
+
+    expect(flight.resolved.workerImage).toBe('ghcr.io/x/worker@sha256:abc');
+    expect(flight.resolved.subagent.contentHash).toMatch(/^sha256:/);
+    expect(Array.isArray(flight.resolved.capabilities)).toBe(true);
+    expect(Array.isArray(flight.resolved.env)).toBe(true);
+    for (const ref of Object.values(flight.resolved.secretRefs)) {
+      expect(typeof ref).toBe('string');
+    }
+  });
+
   it('client.dispatch.fire is a method on the dispatch callable (not a standalone fn)', () => {
     const storage = makeMemoryStorage();
     const compute: ComputeProvider = {
