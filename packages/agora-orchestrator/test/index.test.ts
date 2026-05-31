@@ -14,6 +14,9 @@ import {
   patchSchema,
   validateShape,
   devPack,
+  devCodeEdit,
+  devVerify,
+  devRegistry,
 } from '../src/index.js';
 
 describe('barrel smoke test', () => {
@@ -67,5 +70,17 @@ describe('barrel smoke test', () => {
 
   it('devPack is an array', () => {
     expect(Array.isArray(devPack)).toBe(true);
+  });
+
+  it('devCodeEdit is defined (SubagentShape)', () => {
+    expect(devCodeEdit).toBeDefined();
+  });
+
+  it('devVerify is defined (SubagentShape)', () => {
+    expect(devVerify).toBeDefined();
+  });
+
+  it('devRegistry is a function', () => {
+    expect(typeof devRegistry).toBe('function');
   });
 });
