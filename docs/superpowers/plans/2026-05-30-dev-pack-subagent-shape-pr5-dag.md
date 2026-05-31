@@ -5,14 +5,14 @@ created: 2026-05-30
 
 ```mermaid
 flowchart TD
-    task-zod-dep["task-zod-dep: add zod<br/>files: packages/agora-orchestrator/package.json +1 more"]
-    task-core-types["task-core-types: Patch + Intent (zod source)<br/>files: agora-orchestrator/src/contracts/core-types.ts +1 more"]
-    task-effect-policy["task-effect-policy: effectTierPolicy<br/>files: agora-orchestrator/src/contracts/effect-policy.ts +1 more"]
-    task-subagent-shape["task-subagent-shape: SubagentShape contract<br/>files: agora-orchestrator/src/contracts/subagent-shape.ts +2 more"]
-    task-packs-registry["task-packs-registry: static shape registry<br/>files: agora-orchestrator/src/packs/registry.ts +1 more"]
-    task-dev-pack["task-dev-pack: dev.code-edit + dev.verify<br/>files: agora-orchestrator/src/packs/dev.ts +1 more"]
-    task-workitem-shape-resolution["task-workitem-shape-resolution: resolve+validate at tick<br/>files: agora-orchestrator/src/contracts/types.ts +4 more"]
-    task-contracts-barrel["task-contracts-barrel: export new surface<br/>files: agora-orchestrator/src/contracts/index.ts +1 more"]
+    task-zod-dep["task-zod-dep: add zod<br/>files: packages/agora-orchestrator/package.json +1 more"]:::done
+    task-core-types["task-core-types: Patch + Intent (zod source)<br/>files: agora-orchestrator/src/contracts/core-types.ts +1 more"]:::done
+    task-effect-policy["task-effect-policy: effectTierPolicy<br/>files: agora-orchestrator/src/contracts/effect-policy.ts +1 more"]:::done
+    task-subagent-shape["task-subagent-shape: SubagentShape contract<br/>files: agora-orchestrator/src/contracts/subagent-shape.ts +2 more"]:::done
+    task-packs-registry["task-packs-registry: static shape registry<br/>files: agora-orchestrator/src/packs/registry.ts +1 more"]:::done
+    task-dev-pack["task-dev-pack: dev.code-edit + dev.verify<br/>files: agora-orchestrator/src/packs/dev.ts +1 more"]:::done
+    task-workitem-shape-resolution["task-workitem-shape-resolution: resolve+validate at tick<br/>files: agora-orchestrator/src/contracts/types.ts +6 more"]:::done
+    task-contracts-barrel["task-contracts-barrel: export new surface<br/>files: agora-orchestrator/src/contracts/index.ts +2 more"]:::done
 
     task-zod-dep --> task-core-types
     task-zod-dep --> task-subagent-shape
@@ -105,7 +105,7 @@ depends_on: []
 files:
   - packages/agora-orchestrator/package.json
   - pnpm-lock.yaml
-status: pending
+status: done
 is_wiring_task: true
 ```
 
@@ -129,7 +129,7 @@ depends_on: [task-zod-dep]
 files:
   - packages/agora-orchestrator/src/contracts/core-types.ts
   - packages/agora-orchestrator/test/core-types.test.ts
-status: pending
+status: done
 ```
 
 The narrow-waist shared types packs interop through (spec §2). Trunk builds only
@@ -185,7 +185,7 @@ depends_on: []
 files:
   - packages/agora-orchestrator/src/contracts/effect-policy.ts
   - packages/agora-orchestrator/test/effect-policy.test.ts
-status: pending
+status: done
 ```
 
 The policy engine's read of the effect-tier spine (spec §1). A pure function
@@ -239,7 +239,7 @@ files:
   - packages/agora-orchestrator/src/contracts/subagent-shape.ts
   - packages/agora-orchestrator/test/subagent-shape.test.ts
   - packages/agora-orchestrator/test/support/make-shape.ts
-status: pending
+status: done
 ```
 
 The pack-contributed declaration of what work can be done (spec §3). Holds typed
@@ -323,7 +323,7 @@ depends_on: [task-subagent-shape]
 files:
   - packages/agora-orchestrator/src/packs/registry.ts
   - packages/agora-orchestrator/test/packs/registry.test.ts
-status: pending
+status: done
 ```
 
 A static (construction-time) registry of `SubagentShape`s keyed by id, rejecting
@@ -380,7 +380,7 @@ depends_on: [task-zod-dep, task-core-types, task-subagent-shape, task-packs-regi
 files:
   - packages/agora-orchestrator/src/packs/dev.ts
   - packages/agora-orchestrator/test/packs/dev.test.ts
-status: pending
+status: done
 ```
 
 The first concrete pack: `dev.code-edit` (write-impure — emits a `Patch`/`Intent`)
@@ -452,7 +452,9 @@ files:
   - packages/agora-orchestrator/src/orchestrator.ts
   - packages/agora-orchestrator/test/tick.test.ts
   - packages/agora-orchestrator/test/orchestrator.test.ts
-status: pending
+  - packages/agora-orchestrator/src/runstate/sqlite.ts
+  - packages/agora-orchestrator/test/runstate-sqlite.test.ts
+status: done
 ```
 
 Wire the spine in: `WorkItem` gains an optional `subagentShape` id; when set, the
@@ -513,7 +515,8 @@ depends_on: [task-core-types, task-subagent-shape, task-effect-policy, task-pack
 files:
   - packages/agora-orchestrator/src/contracts/index.ts
   - packages/agora-orchestrator/src/index.ts
-status: pending
+  - packages/agora-orchestrator/test/index.test.ts
+status: done
 is_wiring_task: true
 ```
 
