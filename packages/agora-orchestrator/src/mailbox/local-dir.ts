@@ -12,6 +12,8 @@ import type { MailboxStore } from '../contracts/index.js';
  * Without '%' in this set, decodeURIComponent in decodeSegment would also throw
  * on a malformed '%XX' sequence when round-tripping through list().
  */
+// Intentionally encodes ASCII control chars (\x00-\x1f) so they never reach a filename.
+// eslint-disable-next-line no-control-regex
 const ENCODE_RE = /[%<>:"|?*\x00-\x1f\\]/g;
 
 function encodeSegment(segment: string): string {
