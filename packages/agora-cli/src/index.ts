@@ -22,8 +22,9 @@ export interface CliContext {
   /** Lazily-loaded AgoraClient instance (from agora.config.ts in cwd). */
   getClient: () => Promise<AgoraClient>;
   /** Lazily-loaded OrchContext instance (from agora.config.ts `orch` export in cwd).
-   *  Optional for backward compatibility; if absent, `agora orch` commands will not be registered. */
-  getOrchContext?: () => Promise<OrchContext>;
+   *  Throws lazily (clear error) only when an orch verb actually runs without an `orch`
+   *  config export — mirrors how getClient throws lazily without a config file. */
+  getOrchContext: () => Promise<OrchContext>;
 }
 
 export function buildProgram(ctx: CliContext): Command {
@@ -34,7 +35,7 @@ export function buildProgram(ctx: CliContext): Command {
   attachEnvCmd(program, ctx);
   attachDispatchCmd(program, ctx);
   attachDeployCmd(program, ctx);
-  if (ctx.getOrchContext) attachOrchCmd(program, ctx as CliContext & { getOrchContext: () => Promise<OrchContext> });
+  attachOrchCmd(program, ctx);
   return program;
 }
 
