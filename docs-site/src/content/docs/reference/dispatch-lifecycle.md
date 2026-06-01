@@ -1,4 +1,9 @@
-# Dispatch lifecycle
+---
+title: Dispatch lifecycle events
+description: What each lifecycle event in the worker stdout stream means, and which step each dispatch.failed reason maps to.
+sidebar:
+  order: 5
+---
 
 What actually happens between `agora dispatch run` and the JSON you get
 back. Useful for reading worker stdout, diagnosing failures, and
@@ -56,7 +61,7 @@ the orchestrator can attribute failures.
 | `dispatch.cancelled` | `agora dispatch cancel <id>` was honored mid-flight | n/a |
 
 The vocabulary is intentionally closed. Future kinds would require an ADR
-amendment (see ADR-0004 — "lifecycle vocabulary closed at six").
+amendment (see [ADR-0004 — lifecycle vocabulary closed at six](/agora/explanation/decisions/0004-lifecycle-vocabulary-closed-at-six/)).
 
 ## What `dispatch.failed.reason` means
 
@@ -128,7 +133,7 @@ The dispatch result JSON returned by `agora dispatch run` has both:
   "stderr": "<unstructured stderr — node warnings, adapter complaints>",
   "exitCode": 0,
   "durationMs": 14149,
-  "resolved": { "subagent": {...}, "capabilities": [...], "env": [...] }
+  "resolved": { "subagent": {}, "capabilities": [], "env": [] }
 }
 ```
 
@@ -152,7 +157,7 @@ require `agora env get` upgrades or a manual storage inspection).
 **"setup-script.ran shows only one of my N skills installed."** Multiple
 capabilities each shipped an `agora-setup.sh`. Only one wins
 (last-write-wins on the filename). See
-[`capability-recipes.md`](capability-recipes.md) — files at adapter-
+[Worker file layout](/agora/how-to/worker-file-layout/) — files at adapter-
 reserved paths (`.claude/skills/<name>/`) compose; setup scripts don't.
 
 **"runtime.adapter.ran stdout says 'git commands are being denied' / 'requires approval'."**
@@ -169,7 +174,6 @@ For S3, check that nothing else is writing to the same prefix.
 
 ## See also
 
-- ADR-0004 — why the lifecycle vocabulary is closed at six kinds.
-- ADR-0008, ADR-0009 — the needs_input convention.
-- MVP spec §6.2 (the 14-step lifecycle), §6.3 (overlay/merge), §5.7
-  (lifecycle event types).
+- [ADR-0004 — why the lifecycle vocabulary is closed at six kinds](/agora/explanation/decisions/0004-lifecycle-vocabulary-closed-at-six/).
+- [ADR-0008](/agora/explanation/decisions/0008-needs-input-request-stop-restart/), [ADR-0009](/agora/explanation/decisions/0009-needs-input-sentinel-file-vs-exit-code/) — the needs_input convention.
+- [MVP spec](https://github.com/quarrysystems/agora/blob/main/docs/superpowers/specs/2026-05-21-agora-mvp-design.md) §6.2 (the 14-step lifecycle), §6.3 (overlay/merge), §5.7 (lifecycle event types).

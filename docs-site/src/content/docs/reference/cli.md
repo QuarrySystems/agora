@@ -1,0 +1,103 @@
+---
+title: CLI reference
+description: Every `agora` and `agora orch` subcommand, its options, arguments, and exit behavior.
+sidebar:
+  order: 1
+---
+
+The `agora` binary is a thin CLI over `AgoraClient` (and, for the `orch`
+family, an `OperationsApi`). It resolves an `agora.config.{ts,js,mjs}` in the
+current working directory and dispatches to the subcommand. See
+[agora.config reference](/agora/reference/config/) for how the config is
+resolved and what it must export.
+
+The CLI is the **canonical privileged entry point** — `register`, `assign`,
+`deploy`, and `orch cancel` / `orch audit` / `orch serve` all live here and
+are deliberately absent from the [MCP tool surface](/agora/reference/mcp-tools/).
+See [The privilege boundary](/agora/explanation/privilege-boundary/).
+
+Most subcommands load the client lazily, so the `agora.config` resolution cost
+is only paid when a subcommand actually runs.
+
+## `agora capabilities`
+
+Manage capability bundles.
+
+| Subcommand | Args / options | Behavior |
+|---|---|---|
+| `register` | `--name <name>` (required), `--from <dir>` (required) | Walks `<dir>` recursively, builds a `files:` map keyed by forward-slash relative paths, calls `client.capabilities.register`. Prints the resulting `CapabilityRef` as JSON. |
+| `list` | — | Prints one tab-delimited line per capability: `name\tcontentHash\tregisteredAt`. |
+| `get <name>` | — | Prints the named capability ref as JSON, or `(not found)` when the lookup returns `null`. |
+| `sync` | `--provider <name>` (required), `--from <dir>`, `--dry-run` | Bulk-registers capabilities from a provider's on-disk convention. `--from` defaults to the provider's `defaultCapabilityDir`. `--dry-run` parses and prints without registering. See [Sync capabilities & subagents](/agora/how-to/sync-capabilities-subagents/). |
+
+## `agora subagent`
+
+Manage subagents.
+
+| Subcommand | Args / options | Behavior |
+|---|---|---|
+| `register` | `--name <name>` (required), `--from <file>`, `--system-prompt <text>`, `--prompt-template <text>`, `--model <id>`, `--capability <names...>` (repeatable) | Registers a subagent from a YAML file (`--from`) **or** inline flags — not both. Supply `--from` or at least one inline field, else it errors. Prints `{ name, contentHash, registeredAt }` as JSON. |
+| `assign <name>` | `--capabilities <list>` (required, comma-separated) | **Currently restricted.** Touches the client (so config errors surface), then throws a clear error directing you to re-register the subagent with the new capability list. Full assign-only flow is deferred to v1.5. |
+| `list` | — | Prints one tab-delimited line per subagent: `name\tcontentHash\tregisteredAt`. |
+| `get <name>` | — | Prints the named subagent ref as JSON, or `(not found)`. |
+| `sync` | `--provider <name>` (required), `--from <dir>`, `--dry-run` | Bulk-registers subagents from a provider's convention. `--from` defaults to `defaultSubagentDir`. |
+
+## `agora env`
+
+Manage env bundles.
+
+| Subcommand | Args / options | Behavior |
+|---|---|---|
+| `register` | `--name <name>` (required), `--value <kv...>` (repeatable), `--secret <kv...>` (repeatable) | `--value` takes `KEY=VALUE` pairs (non-secret). `--secret` takes `KEY=arn:...`, `KEY=local-secret://...`, or `KEY=inline:<value>`. A `--secret` value with no recognized prefix prints an error and exits `1`. Prints the `EnvRef` as JSON. |
+| `list` | — | Prints one tab-delimited line per env bundle: `name\tcontentHash\tregisteredAt`. |
+| `get <name>` | — | Prints the named env ref as JSON, or `(not found)`. |
+
+The `--secret` prefixes are the single source of truth for the flag format:
+`arn:` / `local-secret://` produce an opaque `{ ref }`; `inline:` strips the
+prefix and produces `{ inline }`.
+
+## `agora dispatch`
+
+Dispatch and observe workers.
+
+| Subcommand | Args / options | Behavior |
+|---|---|---|
+| `run` | `--subagent <name>` (required), `--target <name>` (required), `--env <names...>`, `--input <json>` (default `{}`), `--capability <names...>`, `--add-capability <names...>`, `--worker-image <digest>` | Parses `--input` as JSON (invalid JSON → error + exit `1`). Calls `client.dispatch`. `--worker-image` defaults to `ghcr.io/anthropic/claude-code:latest`. Prints the `DispatchResult` as pretty JSON. **Exits `1` if `result.failure` is set.** |
+| `describe <id>` | — | Calls `client.dispatch.describe(id)`, prints the full `DispatchResult` as pretty JSON. |
+| `cancel <id>` | — | Calls `client.dispatch.cancel(id)`, prints `cancelled: <id>`. |
+
+`--capability` **replaces** the subagent's assigned capability set;
+`--add-capability` **appends** to it. Combining both throws (enforced
+client-side).
+
+## `agora deploy`
+
+Reconcile a manifest against the registry.
+
+| Args / options | Behavior |
+|---|---|
+| `--from <path>` (required) | Parses the manifest at `<path>` and walks it top-to-bottom in three phases: **capabilities** (each `from:` dir is bundled and registered) → **subagents** → **envs**. Per-entry confirmation lines are printed as `<type> <name>\t<contentHash>`. |
+
+Halt-on-failure: the first registration error aborts the deploy; no rollback
+is attempted, so partial state remains on the registry. Re-registration is
+idempotent via content-addressing, so running the same manifest twice produces
+no new entries.
+
+## `agora orch`
+
+Submit, follow, cancel, and audit offload runs. Aliased as `agora
+orchestrator`. These verbs require the `agora.config` to export an `orch`
+context (an `OrchContext`); the error surfaces lazily when a verb runs without
+it.
+
+| Subcommand | Args / options | Behavior |
+|---|---|---|
+| `submit <plan.json>` | `--queue <name>`, `--actor <id>` | Reads and parses the plan JSON. `--queue` overrides the plan's `queue`. Submits via `OperationsApi.submit`. Prints the run id. |
+| `status [run-id]` | — | Prints the latest status record for the run as pretty JSON (or `null`). |
+| `watch <run-id>` | — | Follows the run, printing each status update as JSON until a terminal state. Ctrl-C to stop. |
+| `cancel <target>` | `--actor <id>` | Requests cancellation of a run/item. Prints `cancel requested: <target>`. |
+| `audit <run-id>` | `--out <path>` | Produces the audit bundle. Writes to `--out` if given, else prints JSON. **Sets exit code `1` when the bundle's `report.intact` is false.** See [Export & verify an audit bundle](/agora/how-to/verify-audit-bundle/). |
+| `serve` | — | Starts the long-running orchestrator driver via the config's `runService`. Errors if the `orch` export provides no `runService`. Wires `SIGINT`/`SIGTERM` to an `AbortController` for graceful shutdown. |
+
+The actor for `submit` and `cancel` resolves as: the `--actor` flag, else
+`$AGORA_ACTOR`, else `human:<os-username>`.
