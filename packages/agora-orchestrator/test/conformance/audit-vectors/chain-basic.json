@@ -1,0 +1,26 @@
+{
+  "description": "Two-step chain. Genesis entry uses prevHash=''. Each step's expectedEntryHash = sha256(canonEntry(entry) + prevHash) hex. canonEntry field order: [kind, runId, itemId, status, actor, manifestRef, resultRef, at, seq].",
+  "steps": [
+    {
+      "entry": {
+        "runId": "run-001",
+        "seq": 0,
+        "kind": "run.submitted",
+        "at": "2026-05-31T00:00:00.000Z"
+      },
+      "expectedEntryHash": "c3622f980ad712a2cb2676e60768001d692089f4ac467279f18876a7fb9b804e"
+    },
+    {
+      "entry": {
+        "runId": "run-001",
+        "seq": 1,
+        "kind": "item.fired",
+        "itemId": "task-a",
+        "status": "in-flight",
+        "actor": "exec-1",
+        "at": "2026-05-31T00:00:01.000Z"
+      },
+      "expectedEntryHash": "e3ec7541a6b192e47d61ad451bd577721523cea3802c3ade99286b50ebfec177"
+    }
+  ]
+}

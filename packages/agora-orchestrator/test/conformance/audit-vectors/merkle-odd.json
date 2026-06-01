@@ -1,0 +1,5 @@
+{
+  "description": "Three leaves (odd count): leaf[2] is carried up unhashed (not duplicated) at the second level. Leaves are 3-byte raw values hex-encoded; merkleRoot() decodes them as raw bytes then wraps in SHA256(0x00||leaf).",
+  "leavesHex": ["aabbcc", "ddeeff", "112233"],
+  "root": "2840b5793552bc43609a1c6c8ee6a49e68ec6ba1f3d352b2f769cfbacbe3ec69"
+}
