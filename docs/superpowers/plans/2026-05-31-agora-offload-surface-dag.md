@@ -322,7 +322,7 @@ depends_on: [task-transport-control-channel]
 files:
   - packages/agora-orchestrator/src/transport/storage-transport.ts
   - packages/agora-orchestrator/test/storage-transport-control.test.ts
-status: pending
+status: done
 ```
 
 Implement the `ControlChannel` capability on `MailboxSubmissionTransport` over a
@@ -384,7 +384,7 @@ depends_on: [task-privilege-registry, task-cancelled-status]
 files:
   - packages/agora-orchestrator/src/orchestrator.ts
   - packages/agora-orchestrator/src/engine/dep-resolver.ts
-status: pending
+status: done
 ```
 
 Add `cancelRun`/`cancelItem`: mark `pending|ready` items terminally `cancelled`,
@@ -458,7 +458,7 @@ id: task-orchestrator-audit-export
 depends_on: [task-orchestrator-cancel, task-audit-contract-types]
 files:
   - packages/agora-orchestrator/src/orchestrator.ts
-status: pending
+status: done
 ```
 
 Add `getAuditExport(runId)` — a read that assembles the refs-only `AuditExport`
@@ -511,7 +511,7 @@ id: task-audit-bundle
 depends_on: [task-audit-contract-types]
 files:
   - packages/agora-orchestrator/src/audit/bundle.ts
-status: pending
+status: done
 ```
 
 Client-side assembly of the §6.5 evidence bundle from an `AuditExport`: reconstruct
@@ -597,7 +597,7 @@ id: task-operations-api
 depends_on: [task-transport-control-channel, task-audit-bundle]
 files:
   - packages/agora-orchestrator/src/operations-api.ts
-status: pending
+status: done
 ```
 
 The single client-facing operations API (§10.2) — `submit`/`status`/`watch`/
@@ -672,7 +672,7 @@ id: task-serve-control
 depends_on: [task-transport-control-channel, task-storage-transport-control, task-orchestrator-cancel]
 files:
   - packages/agora-orchestrator/src/serve/driver.ts
-status: pending
+status: done
 ```
 
 Make the `serve` loop poll the control inbox each iteration and apply cancels via
@@ -719,7 +719,7 @@ Test file: `packages/agora-orchestrator/test/serve-control.test.ts`.
 ```yaml
 id: task-serve-audit-export
 depends_on: [task-serve-control, task-orchestrator-audit-export]
-status: pending
+status: done
 files:
   - packages/agora-orchestrator/src/serve/driver.ts
 ```
@@ -766,7 +766,7 @@ id: task-orchestrator-barrel
 depends_on: [task-audit-bundle, task-operations-api]
 files:
   - packages/agora-orchestrator/src/index.ts
-status: pending
+status: done
 is_wiring_task: true
 ```
 
@@ -792,11 +792,12 @@ depends_on: [task-orchestrator-barrel]
 files:
   - packages/agora-mcp/src/tools.ts
   - packages/agora-mcp/src/server.ts
+  - packages/agora-mcp/src/bin.ts
   - packages/agora-mcp/src/index.ts
   - packages/agora-mcp/test/tool-allowlist.test.ts
   - packages/agora-mcp/test/integration.test.ts
   - packages/agora-mcp/test/barrel-and-bin.test.ts
-status: pending
+status: done
 ```
 
 Add the three client orchestrator tools (`agora_orchestrator_submit|_status|
@@ -855,7 +856,10 @@ depends_on: [task-orchestrator-barrel]
 files:
   - packages/agora-cli/src/cmd-orch.ts
   - packages/agora-cli/src/index.ts
-status: pending
+  - packages/agora-cli/test/cmd-orch.test.ts
+  - packages/agora-cli/test/integration.test.ts
+  - packages/agora-cli/package.json
+status: done
 ```
 
 Add `agora orch` (alias `orchestrator`) with `serve|submit|status|watch|cancel|
@@ -949,7 +953,7 @@ depends_on: [task-orchestrator-cancel, task-mcp-orch-tools]
 files:
   - scripts/check-mcp-tool-allowlist.mjs
   - scripts/check-mcp-tool-allowlist.test.mjs
-status: pending
+status: done
 ```
 
 Make the allowlist check privilege-registry-driven (§10.6 hard gate): import the
