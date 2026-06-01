@@ -53,6 +53,7 @@ it('mutating a persisted entry fails verification (chain)', async () => {
   const r = await verify('r', { store, anchor: anchorOf(root) });
   expect(r.intact).toBe(false);
   expect(r.claim).toBe('tamper-detecting');
+  expect(r.failure).toBe('chain');
 });
 
 it('root-mismatch when the anchored root differs from the recomputed root', async () => {
@@ -100,4 +101,46 @@ it('missing anchored root -> anchor-missing', async () => {
     },
   };
   expect((await verify('r', { store, anchor: empty })).failure).toBe('anchor-missing');
+});
+
+it('a run with zero entries verifies against the 32-zero-byte root', async () => {
+  const store = new SqliteRunStateStore();
+  const zeroRoot = new Uint8Array(32);
+  const anchor = {
+    id: 'fake',
+    guarantee: 'detect' as const,
+    async anchor() {
+      return {} as any;
+    },
+    async fetch() {
+      return [{ epochId: 'empty', root: zeroRoot, receipt: { anchorId: 'fake', epochId: 'empty', guarantee: 'detect' as const, at: 0 } }];
+    },
+  };
+  const r = await verify('empty', { store, anchor });
+  expect(r.intact).toBe(true);
+});
+
+it('signature present but no verifySignature supplied -> intact (signature check skipped)', async () => {
+  const store = new SqliteRunStateStore();
+  const root = seed(store, 'sig-skip');
+  const anchor = {
+    id: 'fake',
+    guarantee: 'detect' as const,
+    async anchor() {
+      return {} as any;
+    },
+    async fetch() {
+      return [
+        {
+          epochId: 'sig-skip',
+          root,
+          signature: { alg: 'ed25519', bytes: new Uint8Array([1, 2, 3]) },
+          receipt: { anchorId: 'fake', epochId: 'sig-skip', guarantee: 'detect' as const, at: 0 },
+        },
+      ];
+    },
+  };
+  const r = await verify('sig-skip', { store, anchor });
+  expect(r.intact).toBe(true);
+  expect(r.failure).toBeUndefined();
 });
