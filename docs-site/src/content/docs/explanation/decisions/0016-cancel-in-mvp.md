@@ -1,10 +1,10 @@
 ---
+title: "ADR-0016: cancel() is in MVP, not v0.2"
+description: "cancel() is in MVP, not v0.2; best-effort cancellation via provider stop + worker SIGTERM trap."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0016. `cancel()` is in MVP, not v0.2
 
 ## Context
 

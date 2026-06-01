@@ -1,10 +1,10 @@
 ---
+title: "ADR-0015: Capability size cap is 50 MiB, rejected at register() time"
+description: "Capability size cap is 50 MiB, rejected synchronously at register() time."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0015. Capability size cap is 50 MiB, rejected at `register()` time
 
 ## Context
 

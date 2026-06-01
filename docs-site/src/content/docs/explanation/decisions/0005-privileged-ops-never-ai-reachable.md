@@ -1,10 +1,10 @@
 ---
+title: "ADR-0005: Privileged operations are never reachable through an AI tool surface"
+description: "Privileged deploy-time operations (register, assign) are never reachable through agora-mcp."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0005. Privileged operations are never reachable through an AI tool surface
 
 ## Context
 

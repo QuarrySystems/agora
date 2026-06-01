@@ -1,10 +1,10 @@
 ---
+title: "ADR-0009: needs_input is signaled by a sentinel file, not by an exit code"
+description: "needs_input is signaled by a sentinel file at a documented path, not by an exit code."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0009. `needs_input` is signaled by a sentinel file, not by an exit code
 
 ## Context
 

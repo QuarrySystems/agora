@@ -1,10 +1,10 @@
 ---
+title: "ADR-0007: Inline secret TTL is auto-computed from dispatch timeout"
+description: "Inline secret TTL is auto-computed from dispatch timeout plus a 5-minute cleanup grace."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0007. Inline secret TTL is auto-computed from dispatch timeout
 
 ## Context
 

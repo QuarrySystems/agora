@@ -1,10 +1,10 @@
 ---
+title: "ADR-0011: No entrypoint override at dispatch time"
+description: "No entrypoint override at dispatch time; customization goes through worker images or agora-setup.sh."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0011. No `entrypoint` override at dispatch time
 
 ## Context
 

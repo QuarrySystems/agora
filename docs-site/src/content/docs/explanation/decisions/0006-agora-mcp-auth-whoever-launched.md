@@ -1,10 +1,10 @@
 ---
+title: "ADR-0006: agora-mcp authentication is 'whoever launched the server'"
+description: "agora-mcp authentication is 'whoever launched the server'; host-level IAM is the trust boundary."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0006. agora-mcp authentication is "whoever launched the server"
 
 ## Context
 

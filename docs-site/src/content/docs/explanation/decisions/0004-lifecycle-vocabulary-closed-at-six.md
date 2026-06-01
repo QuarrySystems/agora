@@ -1,10 +1,10 @@
 ---
+title: "ADR-0004: Lifecycle event vocabulary is closed at six, extensible at minor versions"
+description: "Lifecycle event vocabulary is closed at six kinds for MVP and extensible at minor versions."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0004. Lifecycle event vocabulary is closed at six, extensible at minor versions
 
 ## Context
 

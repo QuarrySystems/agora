@@ -1,10 +1,10 @@
 ---
+title: "ADR-0003: RuntimeAdapter seam is introduced at MVP"
+description: "The RuntimeAdapter interface ships in MVP with the Claude Code adapter as the sole implementation."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0003. RuntimeAdapter seam is introduced at MVP
 
 ## Context
 

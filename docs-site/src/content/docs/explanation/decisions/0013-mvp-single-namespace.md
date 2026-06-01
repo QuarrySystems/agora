@@ -1,10 +1,10 @@
 ---
+title: "ADR-0013: MVP is strictly single-namespace"
+description: "MVP is strictly single-namespace; no public cross-namespace addressing."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0013. MVP is strictly single-namespace
 
 ## Context
 

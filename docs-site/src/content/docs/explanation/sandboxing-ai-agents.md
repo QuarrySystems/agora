@@ -1,12 +1,11 @@
-<!--
-DRAFT — launch / blog / Show HN write-up for agora. Also serves as the
-narration script for the 60–90s terminal demo. Replace [contact / repo]
-before publishing. Deliberately under-claims (the Bedrock-policy "deny"
-layer is roadmap) — that honesty is what earns builder trust.
-Drafted 2026-05-27.
--->
+---
+title: Sandboxing AI agents
+description: Why real access control for AI agents has to live in the execution boundary, not in the agent's own toolbox — and how agora puts it there.
+sidebar:
+  order: 2
+---
 
-# Your AI agent has your shell, your keys, and your filesystem. Mine doesn't.
+## Your AI agent has your shell, your keys, and your filesystem. Mine doesn't.
 
 Most "autonomous agent" setups have a security model that's basically: *trust the model.* The agent runs in your process, with your environment — your `ANTHROPIC_API_KEY`, your AWS creds, your filesystem, your shell. We hand a non-deterministic text generator ambient access to everything and hope the prompt holds.
 
@@ -43,7 +42,7 @@ Those hashes are a provable record of exactly which bytes ran — the audit trai
 
 ## The part that makes it unbypassable
 
-The agent's own tool surface (the MCP server it talks to) exposes **run-time tools only**. The privileged operations — `register`, `assign`: granting an agent more capabilities — are **CLI-only, operator-side, and never reach the AI loop.** The agent cannot grant itself more access, because the verb to do so isn't in its hands. Enforcement lives at the boundary, not in the agent's good behavior.
+The agent's own tool surface (the MCP server it talks to) exposes **run-time tools only**. The privileged operations — `register`, `assign`: granting an agent more capabilities — are **CLI-only, operator-side, and never reach the AI loop.** The agent cannot grant itself more access, because the verb to do so isn't in its hands. Enforcement lives at the boundary, not in the agent's good behavior. See [The privilege boundary](/agora/explanation/privilege-boundary/).
 
 Same code path runs locally against Docker and in production against Fargate + S3 — the swap is constructor-only.
 
@@ -53,6 +52,7 @@ This is v0.1. Today agora enforces access by **grant-scoping + operator-only con
 
 ## If you run agents
 
-agora is **source-available** under the Business Source License 1.1 (BSL) — self-host it, read it, build on it; you just can't resell it as a hosted service. (BSL ≠ OSI-approved free software — see LICENSING.md for the exact terms.)
+agora is **source-available** under the Business Source License 1.1 (BSL) — self-host it, read it, build on it; you just can't resell it as a hosted service. (BSL ≠ OSI-approved free software — see [Licensing & BSL](/agora/explanation/licensing-bsl/) for the exact terms.)
 
-If you're running autonomous or long-running agents and you've felt the *"this thing has way too much access and I can't prove what it did"* itch — I'd genuinely like to set agora up around your agent, for free, and hear where it falls short. [contact / repo]
+If you're running autonomous or long-running agents and you've felt the *"this thing has way too much access and I can't prove what it did"* itch — I'd genuinely like to set agora up around your agent, for free, and hear where it falls short.
+</content>

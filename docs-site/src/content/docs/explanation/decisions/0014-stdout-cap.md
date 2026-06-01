@@ -1,10 +1,10 @@
 ---
+title: "ADR-0014: Stdout capped at 4 MiB, stderr at 256 KiB, with explicit truncation markers"
+description: "Stdout is capped at 4 MiB and stderr at 256 KiB on DispatchResult, with explicit truncation markers."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0014. Stdout capped at 4 MiB, stderr at 256 KiB, with explicit truncation markers
 
 ## Context
 

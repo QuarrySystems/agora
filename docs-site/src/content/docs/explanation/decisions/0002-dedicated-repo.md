@@ -1,10 +1,10 @@
 ---
+title: "ADR-0002: Agora lives in a dedicated repository"
+description: "Agora lives in a dedicated repository, not inside an existing Quarry Systems monorepo."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0002. Agora lives in a dedicated repository
 
 ## Context
 

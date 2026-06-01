@@ -1,10 +1,10 @@
 ---
+title: "ADR-0010: No agora.workflow() / agora.procedure() primitive"
+description: "No agora.workflow() / agora.procedure() primitive in MVP; integrators wrap dispatch() themselves."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0010. No `agora.workflow()` / `agora.procedure()` primitive
 
 ## Context
 

@@ -1,4 +1,9 @@
-# Agora — end-to-end process overview
+---
+title: Architecture overview
+description: One picture of the whole system — from operator registration, through the two run-time entry paths, into the worker sandbox, out the patch escape, and into the tamper-evident audit trail.
+sidebar:
+  order: 1
+---
 
 One picture of how the whole system fits together: from an operator registering
 what an agent *is* and *gets*, through the two run-time entry paths (a single
@@ -8,8 +13,8 @@ trail — with the §10.6 privilege boundary marked throughout.
 
 This is the *process* view. For the *package* dependency graph see the README's
 Architecture section; for the in-container detail see
-[Dispatch lifecycle](dispatch-lifecycle.md); for the orchestrated path's
-operator how-to see [Offload orchestration](offload-orchestration.md).
+[Dispatch lifecycle](/agora/reference/dispatch-lifecycle/); for the orchestrated path's
+operator how-to see [Offload orchestration](/agora/tutorials/first-offload-run/).
 
 ```mermaid
 flowchart TD
@@ -79,7 +84,7 @@ flowchart TD
 
 1. **Register (deploy-time, privileged).** The operator registers capabilities,
    subagents, and env bundles; they land in the content-addressed
-   `StorageProvider`. These verbs are **never** on the MCP surface (ADR-0005).
+   `StorageProvider`. These verbs are **never** on the MCP surface ([ADR-0005](/agora/explanation/decisions/0005-privileged-ops-never-ai-reachable/)).
 
 2. **Two run-time entry paths, one logic core.** Both the CLI and the AI-loop
    MCP server are thin translators over a single **Operations API**:
@@ -119,14 +124,16 @@ flowchart TD
 - **The §10.6 privilege boundary.** Everything red/blue (register, `cancel`,
   `audit`, `serve`, `tick`) is unreachable from the AI loop; the MCP surface is
   green-only (`submit`/`status`/`watch`). A CI allowlist check fails the build if
-  that boundary is ever crossed.
+  that boundary is ever crossed. See [The privilege boundary](/agora/explanation/privilege-boundary/).
 - **Secret + value discipline.** Secret *values* flow only into the worker
   (log-redacted). Manifests and audit entries record **references only** — so the
   manifest and the evidence bundle are safe to hand an auditor.
 
 ## See also
 
-- [Offload orchestration](offload-orchestration.md) — operator how-to for the orchestrated path.
-- [Dispatch lifecycle](dispatch-lifecycle.md) — the 14 worker steps + the six lifecycle events.
-- [Offload V1 delivery spec §2.1](superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the detailed ASCII flow + the compliance/audit edge.
-- [Orchestrator architecture spec](superpowers/specs/2026-05-28-agora-orchestrator-design.md) — registries, queues/deps/locks, the operations-API consolidation.
+- [First offload run](/agora/tutorials/first-offload-run/) — operator walkthrough for the orchestrated path.
+- [Dispatch lifecycle](/agora/reference/dispatch-lifecycle/) — the 14 worker steps + the six lifecycle events.
+- [Offload V1 delivery spec §2.1](https://github.com/quarrysystems/agora/blob/main/docs/superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the detailed ASCII flow + the compliance/audit edge.
+- [Orchestrator architecture spec](https://github.com/quarrysystems/agora/blob/main/docs/superpowers/specs/2026-05-28-agora-orchestrator-design.md) — registries, queues/deps/locks, the operations-API consolidation.
+</content>
+</invoke>

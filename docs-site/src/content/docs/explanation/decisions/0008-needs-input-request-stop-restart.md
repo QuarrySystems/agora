@@ -1,10 +1,10 @@
 ---
+title: "ADR-0008: needs_input uses request-stop-restart (Shape A), not in-flight ask (Shape B)"
+description: "needs_input uses request-stop-restart (Shape A), not in-flight ask."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0008. `needs_input` uses request-stop-restart (Shape A), not in-flight ask (Shape B)
 
 ## Context
 

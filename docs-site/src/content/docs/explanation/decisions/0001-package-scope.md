@@ -1,10 +1,10 @@
 ---
+title: "ADR-0001: Package scope is @quarry-systems/agora-*"
+description: "Agora packages publish under the @quarry-systems/agora-* npm scope."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0001. Package scope is `@quarry-systems/agora-*`
 
 ## Context
 

@@ -1,10 +1,10 @@
 ---
+title: "ADR-0017: Agora is source-available under BSL 1.1 (superseding FSL-1.1-MIT)"
+description: "Agora is source-available under BSL 1.1 (no hosted-service grant; 4yr to Apache-2.0), superseding the earlier FSL-1.1-MIT choice."
 status: accepted
 date: 2026-06-01
 deciders: agora-offload-v1-design
 ---
-
-# 0017. Agora is source-available under BSL 1.1 (superseding FSL-1.1-MIT)
 
 ## Context
 

@@ -1,10 +1,10 @@
 ---
+title: "ADR-0012: Notifications live in two homes by design"
+description: "Notifications live in two homes by design: capability content (behavior-tied) and dispatch field (operational)."
 status: accepted
 date: 2026-05-21
 deciders: agora-mvp-design
 ---
-
-# 0012. Notifications live in two homes by design
 
 ## Context
 
