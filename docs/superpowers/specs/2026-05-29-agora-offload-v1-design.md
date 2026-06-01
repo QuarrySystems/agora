@@ -235,6 +235,82 @@ live only in `executors/dispatch.ts` and the manifest's `executorManifest` block
 The engine sees `WorkItem.executor` (a string) and `inputs` (opaque); the audit
 layer sees an opaque `executorManifest`. This is what makes executor #2 additive.
 
+### 2.1 End-to-end flow (V1 end-state)
+
+The full request path once all five waves land. `✅` = shipped
+(`offload-runner` #18, `offload-escape` #19); `◷` = remaining
+(`offload-audit`, `offload-surface`, `offload-launch`).
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ CLIENT  (operator / Claude Code session)                                  │
+│   CLI:  orch submit · status · watch · cancel · audit   ◷ surface         │
+│   MCP:  submit · status · watch  (client-only; audit is CLI-only) ◷       │
+└───────┬──────────────────────────────────────────────▲────────────────────┘
+        │ write Run spec                                 │ poll status/result/
+        │ (NO inbound networking)                        │ patchRef + audit bundle
+        ▼                                                │
+┌──────────────────────┐                      ┌──────────────────────────────┐
+│ MailboxStore (mutable)│                      │  StorageProvider (content-    │
+│   inbox/  ── poll ──┐ │                      │  addressed, hash-verified)    │
+│   outbox/ ◄── publish│ │                      │   • capability/env/subagent   │
+│   dead/             │ │                      │     bundles    (in)           │
+└─────────────────────┼─┘                      │   • patch artifacts  ✅escape │
+        ▲             │                         │   • dispatch manifests ✅     │
+        │             ▼                         │   • audit roots/proofs ◷audit │
+        │   ┌───────────────────────────────────────────────┐                 │
+        │   │ serve daemon  ✅runner   (sole DB writer · only │                 │
+        │   │ tick() caller · clean SIGTERM · reconcile-first)│                 │
+        │   │   loop: pollInbox→submitRun→tick→publish status │                 │
+        │   └───────────────┬─────────────────────────────────┘                │
+        │                   │ tick()                                            │
+        │   ┌───────────────▼─────────────────────────────────┐                │
+        └───┤ Orchestrator engine ✅runner                     │                │
+            │   queue · deps (DAG) · resource locks · retry/   │                │
+            │   backoff · skip-cascade · recoverStranded       │                │
+            │   run-state ► SQLite (durable volume)            │                │
+            │     cols: status,dispatch_hash,attempts,         │                │
+            │           result_ref ✅, manifest_ref ✅          │                │
+            └───────────────┬──────────────────────────────────┘               │
+              fire(item,ctx) │   ▲ reconcile → {status, resultRef ✅}            │
+                             ▼   │                                              │
+            ┌────────────────────────────────────────────────┐                 │
+            │ DispatchExecutor  (executor-specific; engine     │                │
+            │ stays agnostic, V1-D4)                           │                │
+            │  • fire:  build+put §6.2 manifest (refs only) ✅ │──put manifest──►│
+            │           → client.dispatch.fire                 │                │
+            │  • reconcile: read .agora/output.json sentinel   │◄─get sentinel──┤
+            │               → resultRef ✅                      │                │
+            └───────────────┬──────────────────────────────────┘                │
+                            │ run container (compute provider)                  │
+   ╔════════════════════════▼═══════════════════════════════════╗              │
+   ║ WORKER CONTAINER  (the sandbox — nothing escapes by default) ║              │
+   ║   1 overlay capability bundles ───────────────◄── fetch ─────╫──────────────┤
+   ║   2 resolve secrets via SecretStore (values, log-redacted)   ║              │
+   ║   3 run agora-setup.sh                                       ║              │
+   ║   4 captureBaseline (git write-tree) ✅escape                ║              │
+   ║   5 RuntimeAdapter → AI agent edits the workspace            ║              │
+   ║   6 computeWorkspacePatch (git diff, excl .agora/) ✅        ║              │
+   ║   7 put patch artifact (content-addressed) ────── upload ────╫─────────────►│
+   ║   8 write .agora/output.json {schemaVersion,patchRef} ───────╫─────────────►│
+   ║   9 emit lifecycle events ──────────────────────────────────╫──┐           │
+   ╚══════════════════════════════════════════════════════════════╝  │          │
+                                                                       │          │
+            ┌──────────────────────────────────────────────┐  events  │          │
+            │ Audit  ◷audit  (engine-side, executor-agnostic)│◄────────┘          │
+            │  hash-chain → Merkle-per-epoch → Signer(root)  │── anchor root ────►│
+            │  → AuditAnchor (LocalAnchor=detect /           │                    │
+            │    S3ObjectLockAnchor=external-immutable)      │                    │
+            │  verify = recompute → fetch anchored → compare │                    │
+            └────────────────────────────────────────────────┘                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Secret discipline:** values flow ONLY into the worker (log-redacted);
+  manifests & audit entries record **references only** — safe to hand an auditor.
+- **Two seams:** content-addressed artifacts → `StorageProvider`; mutable queue
+  (inbox/outbox) → `MailboxStore`. Local→Fargate+S3 parity is a target swap.
+
 ---
 
 ## 3. Sandbox escape — the one net-new worker mechanism
