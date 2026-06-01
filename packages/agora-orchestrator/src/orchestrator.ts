@@ -1,5 +1,5 @@
 // packages/agora-orchestrator/src/orchestrator.ts
-import type { Executor, ItemState, Run, RunStateStore, Trigger } from './contracts/index.js';
+import type { AuditEntryRow, AnchoredRoot, AuditExport, Executor, ItemState, Run, RunStateStore, Trigger } from './contracts/index.js';
 import type { PackRegistry } from './packs/registry.js';
 import type { AuditLog } from './audit/audit-log.js';
 import { tick } from './engine/tick.js';
@@ -167,5 +167,20 @@ export class AgoraOrchestrator {
       ...(i.resultRef !== undefined ? { resultRef: i.resultRef } : {}),
       ...(i.manifestRef !== undefined ? { manifestRef: i.manifestRef } : {}),
     }));
+  }
+
+  /** Refs-only audit export for a (typically sealed) run: entries + anchored root +
+   *  per-item outcomes. `root` is undefined if the run's epoch has not sealed.
+   *  Reads the store only — references only, never secret values (D3, §6.5). */
+  getAuditExport(runId: string): AuditExport {
+    const auditStore = this.store as unknown as {
+      getAuditEntries(runId: string): AuditEntryRow[];
+      getAuditRoot(epochId: string): AnchoredRoot | undefined;
+    };
+    const items = this.store.getItems(runId).map((i) => ({
+      id: deNs(i.id), status: i.status, attempts: i.attempts, actor: i.actor,
+      resultRef: i.resultRef, manifestRef: i.manifestRef,
+    }));
+    return { runId, entries: auditStore.getAuditEntries(runId), root: auditStore.getAuditRoot(runId), items };
   }
 }
