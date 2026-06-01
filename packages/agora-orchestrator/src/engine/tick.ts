@@ -19,6 +19,12 @@ export async function tick(
   const backoff = opts.backoffMs ?? ((n) => 1000 * 2 ** n);
   const deNs = opts.denamespace ?? ((x) => x);
 
+  /** Audit is best-effort observability — a failing append must NEVER abort a tick or corrupt run state. */
+  const auditAt = new Date(now).toISOString();
+  const audit = (e: Parameters<NonNullable<typeof opts.auditLog>['append']>[0]) => {
+    try { opts.auditLog?.append(e); } catch { /* best-effort; dropping an append is safe */ }
+  };
+
   const queueItems = () => store.getItems().filter((i) => i.queue === queue);
 
   // 1. Ready newly-satisfied items (scoped to this queue).
@@ -42,15 +48,15 @@ export async function tick(
         store.bumpAttempt(it.id);
         store.releaseLocks(it.id);
         store.requeue(it.id, now + backoff(store.getAttempts(it.id)));
-        opts.auditLog?.append({ kind: 'item.retried', runId: it.runId, itemId: deNs(it.id), at: new Date().toISOString() });
+        audit({ kind: 'item.retried', runId: it.runId, itemId: deNs(it.id), at: auditAt });
       } else {
         store.setStatus(it.id, res.status, res.status === 'failed' ? 'executor reported failed' : undefined);
         if (res.status === 'done' && res.resultRef) store.setResultRef(it.id, res.resultRef);
         store.releaseLocks(it.id);
         if (res.status === 'done') {
-          opts.auditLog?.append({ kind: 'item.reconciled', runId: it.runId, itemId: deNs(it.id), status: 'done', ...(res.resultRef ? { resultRef: res.resultRef } : {}), at: new Date().toISOString() });
+          audit({ kind: 'item.reconciled', runId: it.runId, itemId: deNs(it.id), status: 'done', ...(res.resultRef ? { resultRef: res.resultRef } : {}), at: auditAt });
         } else {
-          opts.auditLog?.append({ kind: 'item.reconciled', runId: it.runId, itemId: deNs(it.id), status: 'failed', at: new Date().toISOString() });
+          audit({ kind: 'item.reconciled', runId: it.runId, itemId: deNs(it.id), status: 'failed', at: auditAt });
         }
       }
       reconciled++;
@@ -102,7 +108,7 @@ export async function tick(
       });
       store.setRunning(it.id, dispatchHash);
       if (manifestRef) store.setManifestRef(it.id, manifestRef);
-      opts.auditLog?.append({ kind: 'item.fired', runId: it.runId, itemId: deNs(it.id), ...(manifestRef ? { manifestRef } : {}), at: new Date().toISOString() });
+      audit({ kind: 'item.fired', runId: it.runId, itemId: deNs(it.id), ...(manifestRef ? { manifestRef } : {}), at: auditAt });
       fired++;
     } catch (err) {
       store.releaseLocks(it.id);
@@ -115,7 +121,7 @@ export async function tick(
   const itemRunId = new Map(currentItems.map((i) => [i.id, i.runId]));
   for (const id of computeSkipped(currentItems)) {
     store.setStatus(id, 'skipped', 'dependency failed or skipped');
-    opts.auditLog?.append({ kind: 'item.skipped', runId: itemRunId.get(id) ?? '', itemId: deNs(id), at: new Date().toISOString() });
+    audit({ kind: 'item.skipped', runId: itemRunId.get(id) ?? '', itemId: deNs(id), at: auditAt });
   }
 
   return { readied: newlyReady.length + moreReady.length, fired, reconciled };
