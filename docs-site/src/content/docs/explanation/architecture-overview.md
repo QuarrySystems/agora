@@ -132,6 +132,7 @@ flowchart TD
 ## See also
 
 - [First offload run](/agora/tutorials/first-offload-run/) — operator walkthrough for the orchestrated path.
+- [How an offload run executes](/agora/explanation/how-offload-runs/) — the scheduling mechanics (queues, deps, locks, the tick loop) behind the orchestrated path.
 - [Dispatch lifecycle](/agora/reference/dispatch-lifecycle/) — the 14 worker steps + the six lifecycle events.
 - [Offload V1 delivery spec §2.1](https://github.com/quarrysystems/agora/blob/main/docs/superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the detailed ASCII flow + the compliance/audit edge.
 - [Orchestrator architecture spec](https://github.com/quarrysystems/agora/blob/main/docs/superpowers/specs/2026-05-28-agora-orchestrator-design.md) — registries, queues/deps/locks, the operations-API consolidation.

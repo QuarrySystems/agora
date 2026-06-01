@@ -161,3 +161,6 @@ kill %1
 - [Audit & guarantee tiers](/agora/explanation/audit-guarantee-tiers/) — what
   `tamper-detecting` actually guarantees, and how to reach the stronger
   `external-immutable` tier.
+- [How an offload run executes](/agora/explanation/how-offload-runs/) — the
+  scheduling mechanics (queues, `depends_on`, resource-locks, the fire-and-reconcile
+  tick loop) behind what you just ran.

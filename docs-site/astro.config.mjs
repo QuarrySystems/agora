@@ -55,6 +55,7 @@ export default defineConfig({
           label: 'Explanation',
           items: [
             { slug: 'explanation/architecture-overview' },
+            { slug: 'explanation/how-offload-runs' },
             { slug: 'explanation/sandboxing-ai-agents' },
             { slug: 'explanation/audit-guarantee-tiers' },
             { slug: 'explanation/privilege-boundary' },

@@ -18,6 +18,8 @@ default path.
 agora is **source-available** under the Business Source License 1.1 — see
 [LICENSE](./LICENSE) and [LICENSING.md](./LICENSING.md).
 
+📖 **Docs:** https://quarrysystems.github.io/agora
+
 ## Install
 
 ```bash
@@ -60,7 +62,7 @@ Fargate + S3 production variant) lives at
 ## Offload
 
 The orchestrator surfaces as the `agora orch` subcommand. A `plan.json`
-describes a DAG of agent tasks with `depends_on`, resource `locks`, and
+describes a DAG of agent tasks with `depends_on`, `resourceLocks`, and
 per-task subagent/env/target bindings. Disjoint file-locks fan out in
 parallel; shared locks serialize automatically. Each finished task drops a
 reviewable patch artifact (`result_ref`). The run produces a tamper-evident
@@ -87,7 +89,7 @@ Thirteen packages under `packages/`:
 | [`agora-core`](packages/agora-core/) | Types-only contract package. Every other agora package depends on this; nothing depends on anything else by default. |
 | [`agora-client`](packages/agora-client/) | Caller-side SDK. `AgoraClient` is the single entry point integrators construct: registration + dispatch surface, with wired-in providers. |
 | [`agora-cli`](packages/agora-cli/) | The `agora` binary. Thin CLI over `AgoraClient` that resolves `agora.config.{ts,js,mjs}` and dispatches to subcommands. Canonical privileged entry point. |
-| [`agora-mcp`](packages/agora-mcp/) | Stdio MCP server exposing exactly six run-time, orchestration-safe tools. `register` / `assign` are deliberately absent — privileged ops never reach the AI loop. |
+| [`agora-mcp`](packages/agora-mcp/) | Stdio MCP server exposing exactly nine run-time, orchestration-safe tools. `register` / `assign` are deliberately absent — privileged ops never reach the AI loop. |
 | [`agora-worker`](packages/agora-worker/) | Container-side runtime. One process per dispatch. Fetches bundles, verifies integrity, overlays the workspace, resolves secrets, hands off to a `RuntimeAdapter`. |
 | [`agora-runtime-claude-code`](packages/agora-runtime-claude-code/) | MVP `RuntimeAdapter` implementation. Prompt rendering, `claude --print` invocation, Claude-specific merge rules, `needs_input` sentinel detection. |
 | [`agora-providers-fargate`](packages/agora-providers-fargate/) | `ComputeProvider` backed by AWS ECS Fargate (`RunTask` / `DescribeTasks` / `StopTask`). Production target. |
@@ -103,42 +105,44 @@ Plus:
 - [`examples/`](examples/) — runnable worked examples, beginning with
   [`hello-world/`](examples/hello-world/) (the §4.4 worked example, also
   the integrator on-ramp).
-- [`docs/decisions/`](docs/decisions/) — ADRs for the substantive design
-  decisions taken during MVP design.
+- [Architecture decisions](https://quarrysystems.github.io/agora/explanation/decisions/) — ADRs for the substantive design
+  decisions taken during MVP design (published in the docs site).
 - [`docker/`](docker/) — the published worker OCI image build context.
 
 ## User guides
 
 Start here if you're new:
 
-- [Getting started](docs/getting-started.md) — zero-to-first-dispatch on
+- [Getting started](https://quarrysystems.github.io/agora/tutorials/first-dispatch/) — zero-to-first-dispatch on
   local Docker. Build the worker image, write `agora.config.mjs`, wire the
   CLI and MCP server, register and dispatch.
+- [Your first offload run](https://quarrysystems.github.io/agora/tutorials/first-offload-run/) — submit a
+  small DAG, watch it fan out under file-locks, and verify the audit bundle.
 
 Reference:
 
-- [Dispatch lifecycle](docs/dispatch-lifecycle.md) — what each event in the
+- [Dispatch lifecycle](https://quarrysystems.github.io/agora/reference/dispatch-lifecycle/) — what each event in the
   worker stdout stream means, which lifecycle step each `dispatch.failed`
   reason maps to.
-- [Capability recipes](docs/capability-recipes.md) — where to put files so the
+- [Worker file layout](https://quarrysystems.github.io/agora/how-to/worker-file-layout/) — where to put files so the
   worker picks them up (skills, settings, plugins, setup scripts), and the
   `agora-setup.sh` single-slot constraint that catches first-time authors.
-- [Sync providers](docs/sync-providers.md) — `agora capabilities sync` /
+- [Sync capabilities & subagents](https://quarrysystems.github.io/agora/how-to/sync-capabilities-subagents/) — `agora capabilities sync` /
   `agora subagent sync` reference, the `claude-code` and `stoa` providers
   shipped today, and how to author a new one.
-- [needs_input](docs/needs-input.md) — how a sub-agent pauses for
+- [Handle needs_input](https://quarrysystems.github.io/agora/how-to/handle-needs-input/) — how a sub-agent pauses for
   clarification, what the orchestrator does with the question, and how
   re-dispatch threads continuity through `partial_state`.
-- [Offload orchestration](docs/offload-orchestration.md) — run a DAG of agent
+- [How an offload run executes](https://quarrysystems.github.io/agora/explanation/how-offload-runs/) — run a DAG of agent
   tasks unattended with `agora orch serve | submit | watch | cancel | audit`:
   queues/deps/resource-locks, the patch escape (`result_ref`), and the
   verifiable audit bundle + guarantee tiers.
 
 Extension + deployment:
 
-- [Writing a provider](docs/writing-a-provider.md) — plug in a new compute
+- [Writing a provider](https://quarrysystems.github.io/agora/how-to/write-a-provider/) — plug in a new compute
   backend, storage layer, credential source, or result sink.
-- [Remote dispatch over SSH](docs/remote-dispatch-windows.md) — orchestrate
+- [Remote Docker dispatch](https://quarrysystems.github.io/agora/how-to/remote-docker-dispatch/) — orchestrate
   from one machine, run workers on another machine's Docker daemon.
 
 ## Architecture
@@ -146,7 +150,7 @@ Extension + deployment:
 > For the **end-to-end runtime process** (register → CLI/MCP surfaces + the
 > §10.6 privilege boundary → `dispatch` vs `orch` → worker sandbox → patch escape
 > → tamper-evident audit), see the
-> [Architecture overview](docs/architecture-overview.md) — one rendered diagram
+> [Architecture overview](https://quarrysystems.github.io/agora/explanation/architecture-overview/) — one rendered diagram
 > of the whole flow. The graph below is the complementary **package dependency**
 > view.
 
@@ -212,8 +216,8 @@ check on `package.json` dependencies.
 
 - [Full MVP design spec](docs/superpowers/specs/2026-05-21-agora-mvp-design.md) — the §1–§11 design canon.
 - [Orchestrator architecture spec](docs/superpowers/specs/2026-05-28-agora-orchestrator-design.md) — the *agora-offload* design: registries, effect tiers, queues/deps/locks, the intent outbox, and the trunk trap-check driving the `agora-orchestrator` package.
-- [Offload V1 delivery spec](docs/superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the shipped V1 slice (`serve` + escape + tamper-evident audit + operator surface), the security/determinism/auditability edge, and the honesty constraints. See also the [Offload orchestration guide](docs/offload-orchestration.md).
-- [Architecture decisions](docs/decisions/) — seventeen ADRs covering
+- [Offload V1 delivery spec](docs/superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the shipped V1 slice (`serve` + escape + tamper-evident audit + operator surface), the security/determinism/auditability edge, and the honesty constraints. See also [How an offload run executes](https://quarrysystems.github.io/agora/explanation/how-offload-runs/).
+- [Architecture decisions](https://quarrysystems.github.io/agora/explanation/decisions/) — seventeen ADRs covering
   package scope, repo location, runtime-adapter seam, secret TTL,
   lifecycle vocabulary, MCP auth model, the source-available (BSL) license,
   and more.
