@@ -148,11 +148,11 @@ export class AgoraOrchestrator {
   cancelItem(runId: string, itemId: string, actor?: string): void {
     const nsId = ns(runId, itemId);
     const it = this.store.getItems(runId).find((i) => i.id === nsId);
-    if (it && (it.status === 'pending' || it.status === 'ready')) {
-      this.store.releaseLocks(it.id);
-      this.store.setStatus(it.id, 'cancelled', 'operator cancelled');
-    }
-    try { this.auditLog?.append({ kind: 'run.cancelled', runId, actor, at: new Date().toISOString() }); } catch { /* best-effort */ }
+    if (!it || (it.status !== 'pending' && it.status !== 'ready')) return; // no-op: nothing to cancel, no audit
+    this.store.releaseLocks(it.id);
+    this.store.setStatus(it.id, 'cancelled', 'operator cancelled');
+    // include itemId so the entry is self-describing for a single-item cancel (kind stays 'run.cancelled' — 'item.cancelled' is not in the AuditEntryKind union)
+    try { this.auditLog?.append({ kind: 'run.cancelled', runId, itemId, actor, at: new Date().toISOString() }); } catch { /* best-effort */ }
   }
 
   getStatus(runId?: string): StatusItem[] {

@@ -8,7 +8,7 @@ export function computeNewlyReady(items: ItemState[]): string[] {
     .map((i) => i.id);
 }
 
-/** ids of `pending` items with at least one dependency already `failed` or `skipped`
+/** ids of `pending` items with at least one dependency already `failed`, `skipped`, or `cancelled`
  *  (they can never ready, so they cascade to `skipped`). Single-pass; the tick re-invokes
  *  across ticks so transitive chains fully settle. */
 export function computeSkipped(items: ItemState[]): string[] {

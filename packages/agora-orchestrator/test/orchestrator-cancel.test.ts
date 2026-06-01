@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { AgoraOrchestrator } from '../src/orchestrator.js';
 import { ManualTrigger } from '../src/triggers/manual.js';
 import { SqliteRunStateStore } from '../src/runstate/sqlite.js';
+import { AuditLog } from '../src/audit/audit-log.js';
+import { NoneSigner } from '../src/audit/signer.js';
+import { LocalAnchor } from '../src/audit/anchor.js';
 import { computeSkipped } from '../src/engine/dep-resolver.js';
 import type { Executor, ItemState, Run } from '../src/contracts/index.js';
 
@@ -18,6 +21,18 @@ function makeOrch(store: SqliteRunStateStore) {
     triggers: { manual: new ManualTrigger() },
     queues: { default: { concurrency: 5 } },
   });
+}
+
+function makeOrchWithAudit(store: SqliteRunStateStore) {
+  const auditLog = new AuditLog({ store, signer: NoneSigner, anchor: new LocalAnchor(store) });
+  const orch = new AgoraOrchestrator({
+    store,
+    executors: { fake: fakeExecutor() },
+    triggers: { manual: new ManualTrigger() },
+    queues: { default: { concurrency: 5 } },
+    auditLog,
+  });
+  return { orch, auditLog };
 }
 
 const twoItemRun: Run = {
@@ -47,28 +62,6 @@ describe('cancelRun', () => {
     expect(afterCancel.find((s) => s.id === 'a')!.status).toBe('cancelled');
     // b is also pending, so it is directly cancelled by cancelRun
     expect(afterCancel.find((s) => s.id === 'b')!.status).toBe('cancelled');
-
-    store.close();
-  });
-
-  it('cancelItem on one item: tick then cascades its pending dependent to skipped', async () => {
-    // Use cancelItem to cancel just 'a', leaving 'b' pending.
-    // Then tick should cascade b -> skipped via computeSkipped.
-    const store = new SqliteRunStateStore();
-    const orch = makeOrch(store);
-    const runId = orch.submitRun(twoItemRun);
-
-    // Cancel only 'a' (which is ready)
-    orch.cancelItem(runId, 'a', 'human:brett');
-
-    const afterCancel = orch.getStatus(runId);
-    expect(afterCancel.find((s) => s.id === 'a')!.status).toBe('cancelled');
-    expect(afterCancel.find((s) => s.id === 'b')!.status).toBe('pending'); // b not yet cascaded
-
-    // After a tick, b should be skipped (via computeSkipped seeing a cancelled dep)
-    await orch.tick('default');
-    const afterTick = orch.getStatus(runId);
-    expect(afterTick.find((s) => s.id === 'b')!.status).toBe('skipped');
 
     store.close();
   });
@@ -133,6 +126,64 @@ describe('cancelItem', () => {
 
     const st = orch.getStatus(runId);
     expect(st.find((s) => s.id === 'a')!.status).toBe('running'); // unchanged
+
+    store.close();
+  });
+
+  it('tick cascades a cancelled item\'s pending dependent to skipped', async () => {
+    // Use cancelItem to cancel just 'a', leaving 'b' pending.
+    // Then tick should cascade b -> skipped via computeSkipped.
+    const store = new SqliteRunStateStore();
+    const orch = makeOrch(store);
+    const runId = orch.submitRun(twoItemRun);
+
+    // Cancel only 'a' (which is ready)
+    orch.cancelItem(runId, 'a', 'human:brett');
+
+    const afterCancel = orch.getStatus(runId);
+    expect(afterCancel.find((s) => s.id === 'a')!.status).toBe('cancelled');
+    expect(afterCancel.find((s) => s.id === 'b')!.status).toBe('pending'); // b not yet cascaded
+
+    // After a tick, b should be skipped (via computeSkipped seeing a cancelled dep)
+    await orch.tick('default');
+    const afterTick = orch.getStatus(runId);
+    expect(afterTick.find((s) => s.id === 'b')!.status).toBe('skipped');
+
+    store.close();
+  });
+
+  it('does NOT append an audit entry when itemId does not exist', () => {
+    // Guard: calling cancelItem with a non-existent itemId must be a no-op
+    // and must NOT write phantom entries to the tamper-evident audit log.
+    const store = new SqliteRunStateStore();
+    const { orch } = makeOrchWithAudit(store);
+    const runId = orch.submitRun(twoItemRun, 'human:brett');
+
+    // Baseline: only 'run.submitted' entry exists
+    const beforeCount = store.getAuditEntries(runId).length;
+
+    // Cancel a non-existent item — should be a complete no-op
+    orch.cancelItem(runId, 'does-not-exist', 'human:brett');
+
+    // Audit log length must be unchanged — no phantom cancellation entry
+    expect(store.getAuditEntries(runId).length).toBe(beforeCount);
+
+    store.close();
+  });
+
+  it('does NOT append an audit entry when item is already terminal (cancelled)', () => {
+    // Guard: cancelling an already-cancelled item must not write a second phantom entry.
+    const store = new SqliteRunStateStore();
+    const { orch } = makeOrchWithAudit(store);
+    const runId = orch.submitRun(twoItemRun, 'human:brett');
+
+    // First cancel — legitimate; should append one run.cancelled entry
+    orch.cancelItem(runId, 'a', 'human:brett');
+    const afterFirst = store.getAuditEntries(runId).length;
+
+    // Second cancel on already-cancelled item — must be a no-op, no second entry
+    orch.cancelItem(runId, 'a', 'human:brett');
+    expect(store.getAuditEntries(runId).length).toBe(afterFirst);
 
     store.close();
   });
