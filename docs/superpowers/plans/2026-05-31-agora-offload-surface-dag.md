@@ -81,7 +81,7 @@ depends_on: []
 files:
   - packages/agora-orchestrator/src/contracts/privilege.ts
   - packages/agora-orchestrator/src/contracts/index.ts
-status: pending
+status: done
 ```
 
 Formalize the §10.6 method→privilege map into a single contract module — the
@@ -145,7 +145,8 @@ id: task-cancelled-status
 depends_on: []
 files:
   - packages/agora-orchestrator/src/contracts/types.ts
-status: pending
+  - packages/agora-orchestrator/test/contracts.test.ts
+status: done
 ```
 
 Add `cancelled` as a terminal run status so an operator-cancelled item is
@@ -181,9 +182,9 @@ it('admits cancelled as a terminal status', () => {
 
 - `RUN_STATUSES` includes `'cancelled'`; `RunStatus` admits it.
 - `TerminalStatus` admits `'cancelled'`.
-- No existing test asserting an exact `RUN_STATUSES` tuple breaks (grep `RUN_STATUSES` consumers; only type-level uses are known — fix any exact-tuple assertion if one surfaces).
+- `test/contracts.test.ts:8` (an exact-tuple assertion, the only one in the package) is updated to the seven-element tuple including `'cancelled'`; rename its `it(...)` from "six lifecycle states" to "seven". `index.test.ts`'s `Array.isArray` check is backward-compatible and untouched.
 
-Test file: `packages/agora-orchestrator/test/cancelled-status.test.ts`.
+Test file: `packages/agora-orchestrator/test/cancelled-status.test.ts` (new) + the updated `test/contracts.test.ts`.
 
 ## Task: submission-transport control channel
 
@@ -193,18 +194,23 @@ depends_on: []
 files:
   - packages/agora-orchestrator/src/contracts/submission-transport.ts
   - packages/agora-orchestrator/test/submission-transport.test.ts
-status: pending
+status: done
 ```
 
-Extend the `SubmissionTransport` seam with a control channel (the cancel path —
-no inbound networking, the service polls) and add `'audit'` to `OUTBOX_KINDS` (the
-audit-export publish path, §6.5). Both are contract surface on one file. Update
-the existing `OUTBOX_KINDS` tuple assertion (`submission-transport.test.ts:5`).
+Add the cancel control channel (no inbound networking — the service polls) and the
+`'audit'` outbox kind (§6.5), both as **additive** contract surface.
+**Interface segregation (load-bearing):** the control methods go on a SEPARATE
+`ControlChannel` interface, NOT on `SubmissionTransport` — `SubmissionTransport`
+has one real implementor (`MailboxSubmissionTransport`) plus three test fakes in
+`serve-driver.test.ts`, and widening it with required methods would break all of
+them at this task's own gate before task 5 implements them. A new unused interface
+breaks nothing. Also update the `OUTBOX_KINDS` tuple assertion
+(`submission-transport.test.ts:5`).
 
 ## Implementation
 
 ```typescript
-// contracts/submission-transport.ts — additive
+// contracts/submission-transport.ts — additive; SubmissionTransport is UNCHANGED
 export const OUTBOX_KINDS = ['status', 'completed', 'audit'] as const;
 export type OutboxKind = (typeof OUTBOX_KINDS)[number];
 
@@ -216,8 +222,9 @@ export interface ControlEnvelope {
   at: string;           // ISO-8601
 }
 
-export interface SubmissionTransport {
-  // ...existing submit/pollInbox/ack/deadLetter/publish/readOutbox unchanged...
+/** Optional capability a transport MAY also implement — the cancel path. Kept
+ *  separate from SubmissionTransport so existing impls/fakes are unaffected. */
+export interface ControlChannel {
   control(env: ControlEnvelope): Promise<void>;          // client → control inbox
   pollControl(): Promise<ControlEnvelope[]>;             // service: claim control requests
   ackControl(target: string): Promise<void>;             // service: consume one
@@ -234,9 +241,9 @@ expect([...OUTBOX_KINDS]).toEqual(['status', 'completed', 'audit']);
 ## Acceptance criteria
 
 - `OUTBOX_KINDS` deep-equals `['status','completed','audit']`; `OutboxKind` admits `'audit'`.
-- `SubmissionTransport` declares `control`, `pollControl`, `ackControl`; existing methods are unchanged.
-- `ControlEnvelope` carries `kind:'cancel'`, `target`, `actor`, `at`.
-- `submission-transport.test.ts` is green against the new tuple.
+- A new `ControlChannel` interface declares `control`, `pollControl`, `ackControl`; `ControlEnvelope` carries `kind:'cancel'`, `target`, `actor`, `at`.
+- `SubmissionTransport` is **unchanged** (no methods added to it) — existing implementors and the `serve-driver.test.ts` fakes still typecheck.
+- `submission-transport.test.ts` is green against the new tuple; the full orchestrator package typecheck + test stays green.
 
 Test file: `packages/agora-orchestrator/test/submission-transport.test.ts`.
 
@@ -247,7 +254,7 @@ id: task-audit-contract-types
 depends_on: []
 files:
   - packages/agora-orchestrator/src/contracts/audit.ts
-status: pending
+status: done
 ```
 
 Define the two audit data shapes the surface needs: `AuditExport` (the refs-only
@@ -318,17 +325,19 @@ files:
 status: pending
 ```
 
-Implement the control channel on `MailboxSubmissionTransport` over a `control/`
-mailbox prefix, mirroring the existing `submissions/` convention. Additive — the
-existing submit/poll/ack/publish/readOutbox methods are untouched. Tests land in a
-NEW file to avoid clobbering `task-transport-control-channel`'s edits to
+Implement the `ControlChannel` capability on `MailboxSubmissionTransport` over a
+`control/` mailbox prefix, mirroring the existing `submissions/` convention.
+Additive — the existing `SubmissionTransport` methods are untouched; the class now
+declares `implements SubmissionTransport, ControlChannel`. Tests land in a NEW file
+to avoid clobbering `task-transport-control-channel`'s edits to
 `submission-transport.test.ts`.
 
 ## Implementation
 
 ```typescript
-// storage-transport.ts — add to MailboxSubmissionTransport
-import type { ControlEnvelope } from '../contracts/index.js';
+// storage-transport.ts
+import type { ControlEnvelope, ControlChannel, SubmissionTransport } from '../contracts/index.js';
+// class MailboxSubmissionTransport implements SubmissionTransport, ControlChannel {
 
   private control_ = (id: string) => `${this.ns}/control/${id}.json`;
   async control(env: ControlEnvelope): Promise<void> {
@@ -360,6 +369,7 @@ it('round-trips a cancel control request and acks it', async () => {
 
 ## Acceptance criteria
 
+- `MailboxSubmissionTransport` declares `implements SubmissionTransport, ControlChannel` and satisfies both (typecheck green).
 - `control()` writes one envelope under `<ns>/control/<target>.json`; `pollControl()` returns all pending; `ackControl()` deletes one.
 - A cancel envelope round-trips: write → poll sees it → ack → poll empty.
 - Existing `submit`/`pollInbox`/`publish`/`readOutbox` behavior is unchanged (existing transport tests stay green).
@@ -599,12 +609,12 @@ over (so the surfaces carry none). Captures `actor` on `submit`/`cancel` (§6.4)
 
 ```typescript
 // operations-api.ts
-import type { SubmissionTransport, ControlEnvelope, OutboxRecord, Run, AuditAnchor, AuditBundle, AuditExport } from './contracts/index.js';
+import type { SubmissionTransport, ControlChannel, ControlEnvelope, OutboxRecord, Run, AuditAnchor, AuditBundle, AuditExport } from './contracts/index.js';
 import { assembleBundle } from './audit/bundle.js';
 
 interface StorageLike { get(ref: string): Promise<Uint8Array>; }
 export interface OperationsApiDeps {
-  transport: SubmissionTransport; anchor?: AuditAnchor; storage?: StorageLike;
+  transport: SubmissionTransport & ControlChannel; anchor?: AuditAnchor; storage?: StorageLike;
   verifySignature?: (root: Uint8Array, sig: import('./contracts/index.js').Signature) => boolean; // optional; see audit-bundle
   nowIso?: () => string;
 }
@@ -666,18 +676,22 @@ status: pending
 ```
 
 Make the `serve` loop poll the control inbox each iteration and apply cancels via
-`orchestrator.cancelRun`/`cancelItem` BEFORE the tick, then `ackControl`. Single
-responsibility: control ingestion. Shares `serve/driver.ts` with
-`task-serve-audit-export` (serialized).
+`orchestrator.cancelRun` BEFORE the tick, then `ackControl`. Single responsibility:
+control ingestion. Shares `serve/driver.ts` with `task-serve-audit-export`
+(serialized). Widen `ServeOptions.transport` to `SubmissionTransport &
+Partial<ControlChannel>` and guard the control calls with `?.` so the existing
+`serve-driver.test.ts` fakes (plain `SubmissionTransport`) still satisfy the type
+and run unchanged (they simply expose no control channel).
 
 ## Implementation
 
 ```typescript
-// serve/driver.ts — inside the while-loop, before tick()
-for (const ctl of await opts.transport.pollControl()) {
+// serve/driver.ts — ServeOptions.transport: SubmissionTransport & Partial<ControlChannel>
+// inside the while-loop, before tick():
+for (const ctl of (await opts.transport.pollControl?.()) ?? []) {
   try {
     if (ctl.kind === 'cancel') opts.orchestrator.cancelRun(ctl.target, ctl.actor); // run-id form in V1
-    await opts.transport.ackControl(ctl.target);
+    await opts.transport.ackControl?.(ctl.target);
   } catch (err) { opts.onError?.(err); }
 }
 await opts.orchestrator.tick(queue);
@@ -878,12 +892,12 @@ import { Command } from 'commander';
 import { readFile, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { OperationsApi } from '@quarry-systems/agora-orchestrator';
-import type { SubmissionTransport, AuditAnchor, Signature } from '@quarry-systems/agora-orchestrator';
+import type { SubmissionTransport, ControlChannel, AuditAnchor, Signature } from '@quarry-systems/agora-orchestrator';
 import type { CliContext } from './index.js';
 
 /** Config-owned operator wiring. Client verbs use transport(+anchor/storage); `serve` uses runService. */
 export interface OrchContext {
-  transport: SubmissionTransport;
+  transport: SubmissionTransport & ControlChannel;
   anchor?: AuditAnchor;
   storage?: { get(ref: string): Promise<Uint8Array> };
   verifySignature?: (root: Uint8Array, sig: Signature) => boolean;
