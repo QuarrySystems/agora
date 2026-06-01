@@ -130,6 +130,9 @@ importers:
       '@quarry-systems/agora-core':
         specifier: workspace:*
         version: link:../agora-core
+      '@quarry-systems/agora-orchestrator':
+        specifier: workspace:^
+        version: link:../agora-orchestrator
 
   packages/agora-orchestrator:
     dependencies:
