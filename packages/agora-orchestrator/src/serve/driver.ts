@@ -1,10 +1,10 @@
 // packages/agora-orchestrator/src/serve/driver.ts
 import type { AgoraOrchestrator } from '../orchestrator.js';
-import type { SubmissionTransport } from '../contracts/index.js';
+import type { SubmissionTransport, ControlChannel } from '../contracts/index.js';
 
 export interface ServeOptions {
   orchestrator: AgoraOrchestrator;
-  transport: SubmissionTransport;
+  transport: SubmissionTransport & Partial<ControlChannel>;
   queue?: string;
   tickIntervalMs?: number;
   signal?: AbortSignal;
@@ -45,6 +45,12 @@ export async function serve(opts: ServeOptions): Promise<void> {
           opts.onError?.(err);
           await opts.transport.deadLetter(env.run.id);   // poison -> dead-letter, NOT infinite re-poll
         }
+      }
+      for (const ctl of (await opts.transport.pollControl?.()) ?? []) {
+        try {
+          if (ctl.kind === 'cancel') opts.orchestrator.cancelRun(ctl.target, ctl.actor);
+          await opts.transport.ackControl?.(ctl.target);
+        } catch (err) { opts.onError?.(err); }
       }
       await opts.orchestrator.tick(queue);
 
