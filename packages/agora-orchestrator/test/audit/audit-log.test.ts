@@ -21,6 +21,8 @@ it('append chains entries (genesis prev empty) and sealEpoch anchors a root', as
   const receipt = await log.sealEpoch('r');
   expect(receipt.epochId).toBe('r');
   expect((await anchor.fetch({ epochId: 'r' })).length).toBe(1);
+  expect(store.getAuditRoot('r')).toBeDefined();
+  expect(store.getAuditRoot('r')!.receipt.epochId).toBe('r');
 });
 it('seq increments per run and is independent across runs', async () => {
   const store = new SqliteRunStateStore();

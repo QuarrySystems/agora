@@ -19,6 +19,8 @@ export class AuditLog {
     const hashes = this.deps.store.getAuditEntries(runId).map((e) => e.entryHash);
     const root = merkleRoot(leavesFromEntryHashes(hashes));
     const signature = await this.deps.signer.sign(root);
-    return this.deps.anchor.anchor({ epochId: runId, root, signature });
+    const receipt = await this.deps.anchor.anchor({ epochId: runId, root, signature });
+    this.deps.store.putAuditRoot({ epochId: runId, root, signature, receipt }); // durable seal marker
+    return receipt;
   }
 }
