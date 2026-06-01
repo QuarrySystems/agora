@@ -51,6 +51,9 @@ describe('audit acceptance — §6.3/§10 end-to-end gates', () => {
     const runId = orch.submitRun(RUN('r1'), 'human:brett');
     await drive(orch);
 
+    // Sanity: run sealed before verify (getAuditRoot persists the completed seal)
+    expect(store.getAuditRoot(runId)).toBeDefined();
+
     const report = await verify(runId, {
       store,
       anchor,
@@ -82,6 +85,9 @@ describe('audit acceptance — §6.3/§10 end-to-end gates', () => {
     const runId = orch.submitRun(RUN('r2'), 'human:brett');
     await drive(orch);
 
+    // Sanity: run sealed before verify (getAuditRoot persists the completed seal)
+    expect(store.getAuditRoot(runId)).toBeDefined();
+
     const report = await verify(runId, {
       store,
       anchor,
@@ -108,6 +114,10 @@ describe('audit acceptance — §6.3/§10 end-to-end gates', () => {
     const runId = orch.submitRun(RUN('r3'), 'human:brett');
     await drive(orch);
 
+    // Prove the run sealed clean BEFORE the tamper — this makes the mutation the causal agent
+    const preReport = await verify(runId, { store, anchor });
+    expect(preReport.intact).toBe(true);   // proves the run sealed clean
+
     // Mutate a persisted audit_entries row directly (bypassing the chain)
     (store as any).db
       .prepare("UPDATE audit_entries SET actor='attacker' WHERE run_id=? AND seq=0")
@@ -116,7 +126,7 @@ describe('audit acceptance — §6.3/§10 end-to-end gates', () => {
     // Re-verify: the DB chain is broken (actor changed, but entryHash was computed with original actor)
     // The anchored root (in S3) still holds the original root — this is the DB-tamper demo
     const report = await verify(runId, { store, anchor });
-    expect(report.intact).toBe(false);
+    expect(report.intact).toBe(false);     // proves the mutation broke it
   });
 
   it('4. no secret value in the audit export — inputs are never written to audit entries', async () => {
@@ -137,7 +147,11 @@ describe('audit acceptance — §6.3/§10 end-to-end gates', () => {
     const runId = orch.submitRun(run, 'human:brett');
     await drive(orch);
 
-    const serialized = JSON.stringify(store.getAuditEntries(runId));
-    expect(serialized).not.toContain(SECRET);
+    // Sanity: run sealed before verify (getAuditRoot persists the completed seal)
+    expect(store.getAuditRoot(runId)).toBeDefined();
+
+    const entries = store.getAuditEntries(runId);
+    expect(entries.length).toBeGreaterThan(0);   // proves audit wiring ran
+    expect(JSON.stringify(entries)).not.toContain(SECRET);
   });
 });
