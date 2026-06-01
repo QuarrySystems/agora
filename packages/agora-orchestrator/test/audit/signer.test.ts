@@ -28,3 +28,18 @@ it('frozen vector: the pinned signature verifies, a wrong root does not', () => 
   expect(verifyEd25519(root, sig, pub)).toBe(true);
   expect(verifyEd25519(new Uint8Array(32).fill(1), sig, pub)).toBe(false);
 });
+
+it('wrong-key: signature from signer A does not verify against signer B public key', async () => {
+  const signerA = createLocalSigner('a');
+  const signerB = createLocalSigner('b');
+  const root = new Uint8Array(32).fill(42);
+  const sig = await signerA.sign(root);
+  expect(verifyEd25519(root, sig, signerB.publicKey)).toBe(false);
+});
+
+it('malformed SPKI bytes return false without throwing', async () => {
+  const s = createLocalSigner();
+  const root = new Uint8Array(32).fill(7);
+  const sig = await s.sign(root);
+  expect(verifyEd25519(root, sig, new Uint8Array([1, 2, 3]))).toBe(false);
+});

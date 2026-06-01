@@ -18,6 +18,10 @@ export function createLocalSigner(keyRef = 'local'): Signer & { publicKey: Buffe
 /** Verify an ed25519 signature over the root against an SPKI-DER public key. */
 export function verifyEd25519(root: Uint8Array, sig: Signature, spkiDer: Uint8Array): boolean {
   if (sig.alg !== 'ed25519') return false;
-  const key = createPublicKey({ key: Buffer.from(spkiDer), format: 'der', type: 'spki' });
-  return nodeVerify(null, Buffer.from(root), key, Buffer.from(sig.bytes));
+  try {
+    const key = createPublicKey({ key: Buffer.from(spkiDer), format: 'der', type: 'spki' });
+    return nodeVerify(null, Buffer.from(root), key, Buffer.from(sig.bytes));
+  } catch {
+    return false;
+  }
 }
