@@ -129,6 +129,10 @@ Reference:
 - [needs_input](docs/needs-input.md) — how a sub-agent pauses for
   clarification, what the orchestrator does with the question, and how
   re-dispatch threads continuity through `partial_state`.
+- [Offload orchestration](docs/offload-orchestration.md) — run a DAG of agent
+  tasks unattended with `agora orch serve | submit | watch | cancel | audit`:
+  queues/deps/resource-locks, the patch escape (`result_ref`), and the
+  verifiable audit bundle + guarantee tiers.
 
 Extension + deployment:
 
@@ -138,6 +142,13 @@ Extension + deployment:
   from one machine, run workers on another machine's Docker daemon.
 
 ## Architecture
+
+> For the **end-to-end runtime process** (register → CLI/MCP surfaces + the
+> §10.6 privilege boundary → `dispatch` vs `orch` → worker sandbox → patch escape
+> → tamper-evident audit), see the
+> [Architecture overview](docs/architecture-overview.md) — one rendered diagram
+> of the whole flow. The graph below is the complementary **package dependency**
+> view.
 
 The package dependency graph (§8 of the spec). `agora-core` is the
 types-only sink; every arrow flows toward it:
@@ -156,7 +167,7 @@ graph TD
   ss3[agora-storage-s3]
   slocal[agora-storage-local]
   secretstore[agora-secret-store]
-  orch[agora-orchestrator<br/><i>engine skeleton</i>]
+  orch[agora-orchestrator<br/><i>offload engine</i>]
 
   client --> core
   client --> secretstore
@@ -190,7 +201,7 @@ agora-core                              (types only)
    ├── agora-storage-s3                 (StorageProvider, S3)
    ├── agora-storage-local              (StorageProvider, local FS)
    ├── agora-secret-store               (SecretStore seam: Inline/AWS + Local; agora-client also depends on it)
-   └── agora-orchestrator               (orchestrator engine skeleton — agora-offload)
+   └── agora-orchestrator               (offload engine — queues/deps/locks, serve, operations API, tamper-evident audit; CLI `agora orch` + client MCP tools)
 ```
 
 No agora package depends on another Quarry Systems library (Stoa,
@@ -201,9 +212,11 @@ check on `package.json` dependencies.
 
 - [Full MVP design spec](docs/superpowers/specs/2026-05-21-agora-mvp-design.md) — the §1–§11 design canon.
 - [Orchestrator architecture spec](docs/superpowers/specs/2026-05-28-agora-orchestrator-design.md) — the *agora-offload* design: registries, effect tiers, queues/deps/locks, the intent outbox, and the trunk trap-check driving the `agora-orchestrator` package.
-- [Architecture decisions](docs/decisions/) — sixteen ADRs covering
+- [Offload V1 delivery spec](docs/superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the shipped V1 slice (`serve` + escape + tamper-evident audit + operator surface), the security/determinism/auditability edge, and the honesty constraints. See also the [Offload orchestration guide](docs/offload-orchestration.md).
+- [Architecture decisions](docs/decisions/) — seventeen ADRs covering
   package scope, repo location, runtime-adapter seam, secret TTL,
-  lifecycle vocabulary, MCP auth model, and more.
+  lifecycle vocabulary, MCP auth model, the source-available (BSL) license,
+  and more.
 - [Examples](examples/) — worked, runnable demonstrations against the
   local provider stack.
 
