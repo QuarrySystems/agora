@@ -45,10 +45,12 @@ audit bundle.
   log with a pluggable `AuditAnchor` seam, actor identity on every operation, and
   `agora orch audit` evidence export. See
   [Audit & guarantee tiers](/agora/explanation/audit-guarantee-tiers/).
-  **Encryption-at-rest is delegated to the deployment substrate** (S3 default
-  bucket encryption, encrypted EBS/EFS) — agora ships no application-layer
-  encryption today; customer-managed encryption (BYOK/KMS) is a V1.1 item (below).
-  The claim is **"compliance-ready," never "compliant" or "certified."**
+  **Encryption-at-rest on S3 writes is agora-set** — `S3StorageProvider` takes an
+  `encryption` option (SSE-S3, or customer-managed SSE-KMS via
+  `{ mode: 'aws:kms', kmsKeyId }`); unset inherits the bucket default (no-downgrade).
+  Other at-rest layers (SQLite run-state volume, staged secrets) remain
+  substrate-provided. The claim is **"compliance-ready," never "compliant" or
+  "certified."**
 - **Headline demo** — a single `submit` exercising locks + deps + concurrency +
   isolation + patch escape, producing a verifiable audit bundle. Walk it in
   [Your first offload run](/agora/tutorials/first-offload-run/).
@@ -104,10 +106,10 @@ A strict superset of V1; nothing below changes what V1 ships.
   `read-impure`, gate `write-impure` intents through interpreter policy.
 - **`Authorizer` seam** — implementor-filled authorization policy at the existing
   operations-API chokepoint. V1 is single-operator ("whoever launched").
-- **Compliance deepening** — **application-/customer-managed encryption-at-rest**
-  (set `ServerSideEncryption` on S3 puts; BYOK/KMS; envelope-encrypted secrets +
-  patch artifacts — today at-rest encryption is substrate-provided only), full
-  role-based RBAC, automated retention/purge, SIEM/log-export, and a
+- **Compliance deepening** — extend customer-managed encryption **beyond S3
+  objects** (S3 SSE/SSE-KMS already ships; deferred: envelope-encrypted staged
+  secrets + encrypted run-state), full role-based RBAC, automated retention/purge,
+  SIEM/log-export, and a
   **Bedrock-backed `RuntimeAdapter`** (keeps the model call inside a customer's AWS
   BAA boundary). All additive via existing seams.
 - **`WitnessAnchor` audit tier** — pushes the audit root to a cross-org witness

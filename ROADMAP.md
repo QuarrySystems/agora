@@ -45,11 +45,12 @@ shipped in #24).
 - **Compliance & audit controls (the edge)** — signed dispatch manifest,
   Merkle-rooted audit log with a pluggable `AuditAnchor` tamper-evidence seam,
   actor identity on every operation, and `agora orch audit` evidence export.
-  **Encryption-at-rest is delegated to the deployment substrate** (S3 default
-  bucket encryption, encrypted EBS/EFS volumes) — agora ships no application-layer
-  encryption today; application-/customer-managed encryption (BYOK/KMS) is a V1.1
-  item (below). The claim is **"compliance-ready," never "compliant" or
-  "certified."**
+  **Encryption-at-rest on S3 writes is agora-set** — `S3StorageProvider` takes an
+  `encryption` option to set server-side encryption (SSE-S3, or customer-managed
+  SSE-KMS via `{ mode: 'aws:kms', kmsKeyId }`); when unset it inherits the bucket
+  default (no-downgrade). Other at-rest layers — the SQLite run-state volume and
+  staged secrets — remain **substrate-provided** (encrypted EBS/EFS). The claim is
+  **"compliance-ready," never "compliant" or "certified."**
 - **Headline demo** — [`examples/offload-fanout`](examples/offload-fanout/):
   one `submit` exercising locks + deps + concurrency + isolation + patch escape,
   producing a verifiable audit bundle.
@@ -114,10 +115,10 @@ V1 ships.
   the chokepoint (the operations API) and identity primitives (`actor`, the
   client/service privilege split); it never owns roles. V1 is single-operator
   ("whoever launched").
-- **Compliance deepening** — **application-/customer-managed encryption-at-rest**
-  (set `ServerSideEncryption` on S3 puts; BYOK/KMS; envelope-encrypted secrets +
-  patch artifacts — today at-rest encryption is substrate-provided only), full
-  role-based RBAC, automated retention/purge policy, SIEM/log-export integrations, and a
+- **Compliance deepening** — extend customer-managed encryption **beyond S3
+  objects** (S3 SSE/SSE-KMS already ships; deferred: envelope-encrypted staged
+  secrets + encrypted run-state), full role-based RBAC, automated retention/purge
+  policy, SIEM/log-export integrations, and a
   **Bedrock-backed `RuntimeAdapter`** (keeps the model call inside a customer's
   AWS BAA boundary). All additive via existing seams. The SOC2 audit / HIPAA risk
   assessment themselves are organizational process, not software.
