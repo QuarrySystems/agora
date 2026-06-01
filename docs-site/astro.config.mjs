@@ -25,7 +25,7 @@ export default defineConfig({
       plugins: [
         // Strict link validation is turned on in a later task once all pages exist.
         // Seeded here in lenient mode so the config is in place.
-        starlightLinksValidator({ errorOnRelativeLinks: false, errorOnInvalidHashes: false }),
+        starlightLinksValidator({ errorOnRelativeLinks: true, errorOnInvalidHashes: true }),
       ],
       sidebar: [
         {

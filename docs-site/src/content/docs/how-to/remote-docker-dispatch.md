@@ -118,3 +118,13 @@ This sidesteps the named-pipe / dial-stdio path entirely.
   machine, so they won't exist on the orchestrator — local FS storage does not
   compose across machines. Memory (if using the Stoa substrate) comes over
   HTTPS, not a bind-mount, so it is unaffected.
+
+## Next steps
+
+- [Deploy to Fargate + S3](/agora/how-to/deploy-fargate-s3/) — take the same
+  dispatch flow onto production AWS compute and S3 storage.
+- [Architecture overview](/agora/explanation/architecture-overview/) — the
+  inward vs outward dispatch topology and the privilege boundary between compute
+  hosts.
+- [Sandboxing AI agents](/agora/explanation/sandboxing-ai-agents/) — what the
+  Docker isolation boundary guarantees and what it does not.
