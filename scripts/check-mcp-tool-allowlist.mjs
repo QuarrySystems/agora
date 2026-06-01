@@ -199,6 +199,6 @@ async function main() {
 }
 
 // Only run the process-exiting main logic when invoked directly (not imported).
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }
