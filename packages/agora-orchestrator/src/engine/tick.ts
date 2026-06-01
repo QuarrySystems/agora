@@ -4,6 +4,7 @@ import { effectTierPolicy } from '../contracts/effect-policy.js';
 import type { PackRegistry } from '../packs/registry.js';
 import { computeNewlyReady, computeSkipped } from './dep-resolver.js';
 import { selectRunnable } from './lock-manager.js';
+import type { AuditLog } from '../audit/audit-log.js';
 
 /** Advance one queue by a single tick. Returns counts for observability/tests. */
 export async function tick(
@@ -11,11 +12,18 @@ export async function tick(
   executors: Record<string, Executor>,
   queue: string,
   packs?: PackRegistry,
-  opts: { maxAttempts?: number; now?: number; backoffMs?: (n: number) => number } = {},
+  opts: { maxAttempts?: number; now?: number; backoffMs?: (n: number) => number; auditLog?: AuditLog; denamespace?: (id: string) => string } = {},
 ): Promise<{ readied: number; fired: number; reconciled: number }> {
   const maxAttempts = opts.maxAttempts ?? 1; // tick is no-retry by default; the orchestrator opts into retry
   const now = opts.now ?? Date.now();
   const backoff = opts.backoffMs ?? ((n) => 1000 * 2 ** n);
+  const deNs = opts.denamespace ?? ((x) => x);
+
+  /** Audit is best-effort observability — a failing append must NEVER abort a tick or corrupt run state. */
+  const auditAt = new Date(now).toISOString();
+  const audit = (e: Parameters<NonNullable<typeof opts.auditLog>['append']>[0]) => {
+    try { opts.auditLog?.append(e); } catch { /* best-effort; dropping an append is safe */ }
+  };
 
   const queueItems = () => store.getItems().filter((i) => i.queue === queue);
 
@@ -40,10 +48,16 @@ export async function tick(
         store.bumpAttempt(it.id);
         store.releaseLocks(it.id);
         store.requeue(it.id, now + backoff(store.getAttempts(it.id)));
+        audit({ kind: 'item.retried', runId: it.runId, itemId: deNs(it.id), at: auditAt });
       } else {
         store.setStatus(it.id, res.status, res.status === 'failed' ? 'executor reported failed' : undefined);
         if (res.status === 'done' && res.resultRef) store.setResultRef(it.id, res.resultRef);
         store.releaseLocks(it.id);
+        if (res.status === 'done') {
+          audit({ kind: 'item.reconciled', runId: it.runId, itemId: deNs(it.id), status: 'done', ...(res.resultRef ? { resultRef: res.resultRef } : {}), at: auditAt });
+        } else {
+          audit({ kind: 'item.reconciled', runId: it.runId, itemId: deNs(it.id), status: 'failed', at: auditAt });
+        }
       }
       reconciled++;
     }
@@ -94,6 +108,7 @@ export async function tick(
       });
       store.setRunning(it.id, dispatchHash);
       if (manifestRef) store.setManifestRef(it.id, manifestRef);
+      audit({ kind: 'item.fired', runId: it.runId, itemId: deNs(it.id), ...(manifestRef ? { manifestRef } : {}), at: auditAt });
       fired++;
     } catch (err) {
       store.releaseLocks(it.id);
@@ -102,8 +117,11 @@ export async function tick(
   }
 
   // 4. Cascade: mark pending dependents of failed/skipped items as skipped.
-  for (const id of computeSkipped(queueItems())) {
+  const currentItems = queueItems();
+  const itemRunId = new Map(currentItems.map((i) => [i.id, i.runId]));
+  for (const id of computeSkipped(currentItems)) {
     store.setStatus(id, 'skipped', 'dependency failed or skipped');
+    audit({ kind: 'item.skipped', runId: itemRunId.get(id) ?? '', itemId: deNs(id), at: auditAt });
   }
 
   return { readied: newlyReady.length + moreReady.length, fired, reconciled };
