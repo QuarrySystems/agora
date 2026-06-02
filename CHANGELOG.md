@@ -4,24 +4,58 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All packages are versioned in lockstep; this file is the changelog for the whole
+workspace. See [RELEASING.md](./RELEASING.md) for how a release is cut.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-05-22
+## [0.1.0] - 2026-06-01
+
+First public, **source-available** release (BSL 1.1). All thirteen packages
+published to npm under `@quarry-systems/agora-*`.
 
 ### Added
 
-- Initial MVP release with eleven packages:
-  - `agora-core`: Core Agora runtime interfaces and types
-  - `agora-client`: Client library for interacting with Agora
-  - `agora-cli`: Command-line interface for Agora
-  - `agora-mcp`: Model Context Protocol integration
-  - `agora-worker`: Worker runtime for distributed execution
-  - `agora-runtime-claude-code`: Claude Code runtime implementation
-  - `agora-storage-s3`: AWS S3 storage provider
-  - `agora-storage-local`: Local filesystem storage provider
-  - `agora-providers-fargate`: AWS Fargate compute provider
-  - `agora-providers-local-docker`: Local Docker compute provider
-  - `agora-providers-aws-creds`: AWS credentials provider
-- RuntimeAdapter seam with initial Claude Code implementation
-- Full specification and design documentation
+- **Offload orchestrator (`agora-orchestrator`).** `agora orch serve | submit |
+  watch | cancel | audit` — a long-running driver runs a DAG of agent tasks
+  unattended: dependency ordering, parallel fan-out serialized by declared
+  resource locks, retry/backoff with a `skipped` cascade, a reviewable patch
+  artifact per task (`result_ref`), and an exportable, self-verifying audit bundle.
+- **Tamper-evidence.** Signed dispatch manifest + Merkle-rooted audit log behind a
+  pluggable `AuditAnchor` seam. Tamper-detecting by default; tamper-evident at the
+  external-immutable S3 Object Lock tier.
+- **Caller SDK (`agora-client`).** `AgoraClient` — register capabilities,
+  subagents, and env bundles, then `dispatch`. The same code path runs locally
+  against Docker and in production against Fargate + S3 via swappable provider
+  seams (compute / storage / credentials / result-sink / secret-store).
+- **CLI (`agora-cli`)** and **MCP server (`agora-mcp`)** — nine run-time,
+  orchestration-safe MCP tools; privileged ops (`register` / `assign`) and the
+  operator `audit` action are kept off the AI tool surface, enforced by a CI
+  allowlist.
+- **Worker runtime (`agora-worker`)** and the MVP **`agora-runtime-claude-code`**
+  adapter (prompt rendering, `claude --print`, `needs_input` sentinel).
+- **Providers:** `agora-providers-fargate`, `agora-providers-local-docker`
+  (compute); `agora-storage-s3`, `agora-storage-local` (storage);
+  `agora-providers-aws-creds` (credentials); `agora-secret-store` (SecretStore
+  seam + inline/local implementations).
+- **S3 server-side encryption.** `S3StorageProvider` accepts an `encryption`
+  option (SSE-S3, or customer-managed SSE-KMS); omitting it inherits the bucket
+  default (no-downgrade).
+- **Types-only contract (`agora-core`)** that every other package depends on.
+- **Documentation site** — https://quarrysystems.github.io/agora/ (tutorials,
+  how-to, reference, explanation, ADRs, roadmap).
+- **Licensing.** Source-available under the Business Source License 1.1 (no
+  hosted-service Additional Use Grant; Change Date four years out → Apache-2.0).
+
+### Known limitations
+
+- End-to-end **Fargate + S3 parity is operator-deferred** — the production
+  components exist and are documented but have not been run end-to-end by the
+  maintainers; no concrete `S3LockClient` adapter ships (interface only).
+- The **`dev` pack / typed-subagent substrate** is scaffolded but not yet
+  dispatchable (placeholder worker image; `outputSchema` declared, not enforced).
+- **Effect-tier policy** is computed but not yet enforced.
+- **Pre-1.0 (`0.x`):** interfaces may change between minor versions.
+
+[Unreleased]: https://github.com/QuarrySystems/agora/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/QuarrySystems/agora/releases/tag/v0.1.0
