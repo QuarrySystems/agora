@@ -19,7 +19,7 @@ design and shapes everything below.
 
 ## Now — shipped in V1
 
-The local-Docker acceptance path is proven live: safe fan-out under file-locks,
+The local-Docker acceptance path is proven live: safe fan-out under resource locks,
 a per-edit patch artifact (`result_ref`), and a verifiable **tamper-detecting**
 audit bundle. Delivered across five waves (PRs #18, #19, #21, #22, #23; V1 marked
 shipped in #24).
