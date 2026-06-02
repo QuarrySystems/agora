@@ -46,6 +46,27 @@ services:
       start_period: 5s
 
   # ---------------------------------------------------------------------------
+  # localstack — AWS Secrets Manager emulator (the proper secret lane).
+  # serve stages ANTHROPIC_API_KEY here as a per-dispatch secret; the worker
+  # resolves the ref over the network (cross-container, unlike a local-FS store).
+  # ---------------------------------------------------------------------------
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: agora-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: "secretsmanager"
+      DEFAULT_REGION: "us-east-1"
+      EAGER_SERVICE_LOADING: "1"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
   # minio-init — one-shot bucket creation (idempotent)
   # ---------------------------------------------------------------------------
   minio-init:
@@ -93,10 +114,15 @@ services:
         condition: service_completed_successfully
       serve-data-init:
         condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
     environment:
       # S3 / MinIO — host.docker.internal so the serve container reaches
       # the MinIO port exposed on the Docker host network (§2.1 duality).
       AGORA_S3_ENDPOINT: "http://host.docker.internal:9000"
+      # Secrets Manager (LocalStack) — serve stages the per-dispatch secret here;
+      # same host.docker.internal endpoint the worker uses (set via extraEnv).
+      AWS_ENDPOINT_URL_SECRETS_MANAGER: "http://host.docker.internal:4566"
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1

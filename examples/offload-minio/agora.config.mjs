@@ -14,7 +14,7 @@ import { createPrivateKey, createPublicKey, sign as edSign } from 'node:crypto';
 import { S3Client } from '@aws-sdk/client-s3';
 import { AgoraClient, NoopCredentialProvider, StdoutResultSink } from '@quarry-systems/agora-client';
 import { LocalDockerProvider } from '@quarry-systems/agora-providers-local-docker';
-import { LocalSecretStore } from '@quarry-systems/agora-secret-store';
+import { AwsSecretStore } from '@quarry-systems/agora-secret-store';
 import { S3StorageProvider } from '@quarry-systems/agora-storage-s3';
 import {
   AgoraOrchestrator,
@@ -46,10 +46,6 @@ const s3 = new S3Client({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Paths
-// ---------------------------------------------------------------------------
-const secretDir = join(tmpdir(), 'agora-minio-secrets');
 const workerImage = 'ghcr.io/quarrysystems/agora-worker:latest';
 
 // ---------------------------------------------------------------------------
@@ -113,17 +109,28 @@ export const client = new AgoraClient({
     'local-docker': new LocalDockerProvider({
       allowUnpinnedImage: true,
       extraEnv: {
+        // S3 (MinIO) storage bootstrap — needed at worker boot, before bundles.
         AGORA_S3_ENDPOINT: process.env.AGORA_S3_ENDPOINT ?? '',
         AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID ?? process.env.AGORA_S3_ACCESS_KEY ?? 'minioadmin',
         AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY ?? process.env.AGORA_S3_SECRET_KEY ?? 'minioadmin',
         AWS_REGION: process.env.AWS_REGION ?? 'us-east-1',
+        // Secrets Manager (LocalStack) endpoint so the worker's AwsSecretStore
+        // resolves per-dispatch secret refs cross-container. The AWS SDK honors
+        // AWS_ENDPOINT_URL_SECRETS_MANAGER natively — no worker code change.
+        AWS_ENDPOINT_URL_SECRETS_MANAGER:
+          process.env.AWS_ENDPOINT_URL_SECRETS_MANAGER ?? 'http://host.docker.internal:4566',
       },
     }),
   },
   storage,
-  secretStores: { local: new LocalSecretStore({ dir: secretDir }) },
+  // AwsSecretStore against LocalStack Secrets Manager (endpoint via
+  // AWS_ENDPOINT_URL_SECRETS_MANAGER on serve + worker). The ANTHROPIC_API_KEY is
+  // staged here as a per-dispatch secret (ref-only in audit, log-redacted) and
+  // resolved by the worker over the network — the proper secret lane, not a
+  // bundle value.
+  secretStores: { aws: new AwsSecretStore() },
   credentials: { none: new NoopCredentialProvider() },
-  targets: { local: { compute: 'local-docker', credentials: 'none', secretStore: 'local' } },
+  targets: { local: { compute: 'local-docker', credentials: 'none', secretStore: 'aws' } },
   resultSink: new StdoutResultSink(),
 });
 
@@ -135,14 +142,18 @@ export default client;
 // DispatchExecutor does no I/O until fire() is called.
 // ---------------------------------------------------------------------------
 function makeExecutors() {
-  // No per-dispatch inline secrets: ANTHROPIC_API_KEY is delivered to workers via
-  // an env BUNDLE (registered by the driver, ride-along in content-addressed
-  // storage = MinIO). Per-dispatch inline secrets stage to LocalSecretStore on the
-  // serve container's local FS, which sibling worker containers (launched on the
-  // host daemon) cannot read — bundles travel through storage, so they can.
-  // The only worker-boot config (S3 endpoint + AWS creds) rides extraEnv on the
-  // LocalDockerProvider above, because it is needed BEFORE bundles can be fetched.
-  const opts = { client, target: 'local', workerImage };
+  // ANTHROPIC_API_KEY is staged per-dispatch through the target's AwsSecretStore
+  // (LocalStack Secrets Manager). serve stages it → an ARN ref travels to the
+  // worker → the worker resolves it over the network and the value is injected +
+  // log-redacted, recorded refs-only in the audit. This is the proper secret lane;
+  // it works cross-container because Secrets Manager is network-reachable (unlike
+  // a local-FS LocalSecretStore). serve reads ANTHROPIC_API_KEY from its env_file.
+  const opts = {
+    client,
+    target: 'local',
+    workerImage,
+    secrets: { ANTHROPIC_API_KEY: { inline: process.env.ANTHROPIC_API_KEY ?? '' } },
+  };
   return {
     'dispatch-a': new DispatchExecutor(opts),
     'dispatch-b': new DispatchExecutor(opts),
