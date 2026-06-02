@@ -12,9 +12,13 @@ flowchart TD
     task-plan-smoke["task-plan-smoke: deterministic run plan<br/>files: examples/offload-minio/plan.json +4 more"]:::done
     task-config["task-config: example config wiring<br/>files: examples/offload-minio/agora.config.mjs"]:::done
     task-serve-image["task-serve-image: serve container image<br/>files: examples/offload-minio/Dockerfile.serve +1 more"]:::done
-    task-compose["task-compose: MinIO compose stack<br/>files: examples/offload-minio/docker-compose.yml +1 more"]
-    task-e2e["task-e2e: end-to-end MinIO demo<br/>files: examples/offload-minio/src/index.ts +1 more"]
-    task-readme["task-readme: example README<br/>files: examples/offload-minio/README.md"]
+    task-storage-s3-endpoint-opts["task-storage-s3-endpoint-opts: S3 provider endpoint opts<br/>files: packages/agora-storage-s3/src/index.ts +1 more"]:::done
+    task-provider-extra-env["task-provider-extra-env: local-docker extraEnv<br/>files: packages/agora-providers-local-docker/src/index.ts +1 more"]:::done
+    task-worker-s3-endpoint["task-worker-s3-endpoint: worker S3 endpoint support<br/>files: packages/agora-worker/src/bundle-fetcher.ts +1 more"]:::done
+    task-config-worker-env["task-config-worker-env: wire extraEnv into config<br/>files: examples/offload-minio/agora.config.mjs"]:::done
+    task-compose["task-compose: MinIO compose stack<br/>files: examples/offload-minio/docker-compose.yml +1 more"]:::done
+    task-e2e["task-e2e: end-to-end MinIO demo<br/>files: examples/offload-minio/src/index.ts +1 more"]:::done
+    task-readme["task-readme: example README<br/>files: examples/offload-minio/README.md"]:::done
 
     task-example-scaffold --> task-aws-s3-mailbox-client
     task-s3-mailbox --> task-aws-s3-mailbox-client
@@ -23,7 +27,12 @@ flowchart TD
     task-aws-s3-mailbox-client --> task-config
     task-aws-s3-lock-client --> task-config
     task-config --> task-serve-image
+    task-storage-s3-endpoint-opts --> task-worker-s3-endpoint
+    task-config --> task-config-worker-env
+    task-worker-s3-endpoint --> task-config-worker-env
+    task-provider-extra-env --> task-config-worker-env
     task-serve-image --> task-compose
+    task-config-worker-env --> task-compose
     task-compose --> task-e2e
     task-plan-smoke --> task-e2e
     task-e2e --> task-readme
@@ -562,15 +571,211 @@ await serve({ orchestrator: orch.orchestrator, transport: orch.transport, signal
 
 Test file: `examples/offload-minio/test/e2e.test.ts` (serve is driven by the live run; authored in `task-e2e`).
 
+## Task: S3 provider endpoint opts
+
+```yaml
+id: task-storage-s3-endpoint-opts
+depends_on: []
+files:
+  - packages/agora-storage-s3/src/index.ts
+  - packages/agora-storage-s3/test/endpoint-opts.test.ts
+status: done
+```
+
+Extend `S3StorageProviderOpts` with optional `endpoint` / `forcePathStyle` / `region`
+so a caller can target MinIO/LocalStack without pre-building an `S3Client`. When no
+`client` is supplied but `endpoint` is, the provider builds
+`new S3Client({ endpoint, forcePathStyle, region })` (credentials left to the SDK's
+default env chain). When `client` IS supplied it wins (unchanged). Additive — real
+AWS callers that pass neither are unaffected.
+
+## Implementation
+
+```typescript
+// packages/agora-storage-s3/src/index.ts — extend opts + constructor
+export interface S3StorageProviderOpts {
+  bucket: string;
+  client?: S3Client;
+  prefix?: string;
+  endpoint?: string;          // NEW — e.g. http://localhost:9000 (MinIO)
+  forcePathStyle?: boolean;   // NEW — true for MinIO
+  region?: string;            // NEW — defaults 'us-east-1'
+  encryption?: { mode: 'AES256' } | { mode: 'aws:kms'; kmsKeyId?: string };
+}
+// in constructor: this.s3 = opts.client ?? new S3Client(
+//   opts.endpoint ? { endpoint: opts.endpoint, forcePathStyle: opts.forcePathStyle, region: opts.region ?? 'us-east-1' } : {}
+// );
+```
+
+```typescript
+// packages/agora-storage-s3/test/endpoint-opts.test.ts
+import { describe, it, expect } from 'vitest';
+import { S3StorageProvider } from '../src/index.js';
+
+it('builds a client targeting the given endpoint when no client is injected', async () => {
+  const p = new S3StorageProvider({ bucket: 'b', endpoint: 'http://localhost:9000', forcePathStyle: true });
+  // the internal client should resolve the configured endpoint
+  const cfgEndpoint = await (p as any).s3.config.endpoint();
+  expect(`${cfgEndpoint.protocol}//${cfgEndpoint.hostname}:${cfgEndpoint.port}`).toContain('localhost:9000');
+});
+```
+
+## Acceptance criteria
+
+- `S3StorageProviderOpts` gains optional `endpoint`/`forcePathStyle`/`region`; an injected `client` still takes precedence.
+- With `endpoint` set and no `client`, the provider's S3 client resolves that endpoint (path-style honored).
+- Existing behavior (no endpoint, no client → default AWS client) is unchanged; existing suite passes.
+
+Test file: `packages/agora-storage-s3/test/endpoint-opts.test.ts`.
+
+## Task: local-docker extraEnv
+
+```yaml
+id: task-provider-extra-env
+depends_on: []
+files:
+  - packages/agora-providers-local-docker/src/index.ts
+  - packages/agora-providers-local-docker/test/extra-env.test.ts
+status: done
+```
+
+Add an optional `extraEnv?: Record<string, string>` to `LocalDockerProviderOpts`,
+merged into each worker container's `Env` (so deploy-time config like
+`AGORA_S3_ENDPOINT` + `AWS_*` creds reaches the worker's `process.env` at boot —
+the only point the worker can configure its S3 client). `spec.env` (the dispatch
+`AGORA_*` vars) takes precedence on key collisions.
+
+## Implementation
+
+```typescript
+// packages/agora-providers-local-docker/src/index.ts
+// opts: add `extraEnv?: Record<string, string>;` ; store `this.extraEnv = opts.extraEnv ?? {};`
+// in prepareEnvAndBinds: const env = { ...this.extraEnv, ...spec.env };  // spec.env wins
+```
+
+```typescript
+// packages/agora-providers-local-docker/test/extra-env.test.ts
+import { describe, it, expect } from 'vitest';
+import { LocalDockerProvider } from '../src/index.js';
+
+it('passes extraEnv into the container Env (spec.env wins on collision)', async () => {
+  const captured: any = {};
+  const fakeDocker: any = { createContainer: async (cfg: any) => { captured.cfg = cfg; return { id: 'x', start: async () => {} }; } };
+  const p = new LocalDockerProvider({ docker: fakeDocker, allowUnpinnedImage: true, extraEnv: { AGORA_S3_ENDPOINT: 'http://host.docker.internal:9000' } });
+  await p.run({ image: 'img', command: [], dispatchId: 'd', env: { AGORA_NAMESPACE: 'ns' } } as any, {} as any);
+  expect(captured.cfg.Env).toContain('AGORA_S3_ENDPOINT=http://host.docker.internal:9000');
+  expect(captured.cfg.Env).toContain('AGORA_NAMESPACE=ns');
+});
+```
+
+## Acceptance criteria
+
+- `LocalDockerProviderOpts` gains optional `extraEnv`; defaults to `{}` (no behavior change when unset).
+- `extraEnv` entries appear in the container `Env`; on key collision `spec.env` wins.
+- Existing local-docker suite passes.
+
+Test file: `packages/agora-providers-local-docker/test/extra-env.test.ts`.
+
+## Task: worker S3 endpoint support
+
+```yaml
+id: task-worker-s3-endpoint
+depends_on: [task-storage-s3-endpoint-opts]
+files:
+  - packages/agora-worker/src/bundle-fetcher.ts
+  - packages/agora-worker/test/bundle-fetcher-s3-endpoint.test.ts
+status: done
+```
+
+Make the worker's `constructStorageProvider` honor a custom S3 endpoint so a worker
+can reach MinIO (today it builds `S3StorageProvider({ bucket, prefix })` against the
+default AWS endpoint — unable to see MinIO). When `process.env.AGORA_S3_ENDPOINT` is
+set, pass the new endpoint opts through; credentials ride the SDK's default env chain
+(`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, set on the container via `extraEnv`).
+
+## Implementation
+
+```typescript
+// packages/agora-worker/src/bundle-fetcher.ts — in the s3:// branch
+const endpoint = process.env.AGORA_S3_ENDPOINT;
+return new S3StorageProvider(
+  endpoint
+    ? { bucket, prefix, endpoint, forcePathStyle: true, region: process.env.AWS_REGION ?? 'us-east-1' }
+    : { bucket, prefix },
+);
+```
+
+```typescript
+// packages/agora-worker/test/bundle-fetcher-s3-endpoint.test.ts
+import { describe, it, expect, afterEach } from 'vitest';
+import { constructStorageProvider } from '../src/bundle-fetcher.js';
+
+afterEach(() => { delete process.env.AGORA_S3_ENDPOINT; });
+
+it('passes the endpoint through to S3StorageProvider when AGORA_S3_ENDPOINT is set', async () => {
+  process.env.AGORA_S3_ENDPOINT = 'http://host.docker.internal:9000';
+  const sp: any = await constructStorageProvider('s3://agora-data');
+  const cfgEndpoint = await sp.s3.config.endpoint();
+  expect(cfgEndpoint.hostname).toBe('host.docker.internal');
+});
+```
+
+## Acceptance criteria
+
+- With `AGORA_S3_ENDPOINT` unset, `constructStorageProvider('s3://b')` behaves exactly as before (default AWS client).
+- With it set, the returned provider's S3 client targets that endpoint with path-style addressing.
+- `file://` / bare-path branches unchanged; existing worker suite passes.
+
+Test file: `packages/agora-worker/test/bundle-fetcher-s3-endpoint.test.ts`.
+
+## Task: wire extraEnv into config
+
+```yaml
+id: task-config-worker-env
+depends_on: [task-config, task-worker-s3-endpoint, task-provider-extra-env]
+files:
+  - examples/offload-minio/agora.config.mjs
+status: done
+is_wiring_task: true
+```
+
+Update the example config's `LocalDockerProvider` construction to pass `extraEnv` so
+the serve-launched worker containers receive the MinIO endpoint + credentials at boot
+(the only way the worker's S3 client can target MinIO, per task-worker-s3-endpoint +
+task-provider-extra-env). Values come from the serve container's own env (set by
+compose): `AGORA_S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`AWS_REGION`.
+
+```javascript
+// examples/offload-minio/agora.config.mjs — LocalDockerProvider construction
+new LocalDockerProvider({
+  allowUnpinnedImage: true,
+  extraEnv: {
+    AGORA_S3_ENDPOINT: process.env.AGORA_S3_ENDPOINT ?? '',
+    AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID ?? process.env.AGORA_S3_ACCESS_KEY ?? 'minioadmin',
+    AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY ?? process.env.AGORA_S3_SECRET_KEY ?? 'minioadmin',
+    AWS_REGION: process.env.AWS_REGION ?? 'us-east-1',
+  },
+})
+```
+
+## Acceptance criteria
+
+- The config's `LocalDockerProvider` is constructed with `extraEnv` carrying `AGORA_S3_ENDPOINT` + `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` + `AWS_REGION`.
+- Import-safety preserved: importing the config still throws nothing and opens no DB when env is unset (the `?? ''`/`?? 'minioadmin'` fallbacks keep it side-effect-free).
+- No other part of the config changes.
+
+Test file: `examples/offload-minio/test/e2e.test.ts` (exercised by the live run; authored in task-e2e).
+
 ## Task: MinIO compose stack
 
 ```yaml
 id: task-compose
-depends_on: [task-serve-image]
+depends_on: [task-serve-image, task-config-worker-env]
 files:
   - examples/offload-minio/docker-compose.yml
   - examples/offload-minio/scripts/init-buckets.sh
-status: pending
+status: done
 is_wiring_task: true
 ```
 
@@ -599,7 +804,7 @@ depends_on: [task-compose, task-plan-smoke]
 files:
   - examples/offload-minio/src/index.ts
   - examples/offload-minio/test/e2e.test.ts
-status: pending
+status: done
 ```
 
 The host-side client driver (spec §5 client side) plus the live e2e + tamper test
@@ -673,7 +878,7 @@ id: task-readme
 depends_on: [task-e2e]
 files:
   - examples/offload-minio/README.md
-status: pending
+status: done
 is_wiring_task: true
 ```
 
