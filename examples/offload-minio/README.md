@@ -52,7 +52,7 @@ green checkmark does and does not cover.
 | What | Detail |
 |---|---|
 | `claude-code` worker | Every edit invokes the real adapter: `boot → secrets → baseline → RuntimeAdapter.invoke() (real claude CLI) → git diff → patch upload → result_ref` |
-| Secret staging | `ANTHROPIC_API_KEY` is staged into the worker container by the executor — the exact path `offload-fanout` proves |
+| Key delivery | `ANTHROPIC_API_KEY` is delivered to workers via an **env bundle** (rides content-addressed MinIO storage), since sibling workers can't read secrets staged to the `serve` container's local FS. See "Key delivery" below. |
 | S3 protocol | The real AWS SDK talks to MinIO over the real S3 wire protocol — a substitute *endpoint*, not a mock |
 | Merkle audit + object-lock anchor | Full audit chain sealed and anchored into a real object-lock backend |
 | Dispatch engine | Deps, resource locks, retry, fire/reconcile — all real |
@@ -105,34 +105,46 @@ docker build -t ghcr.io/quarrysystems/agora-worker:latest \
 
 ### Step 2 — Put the Anthropic key in the repo-root `.env`
 
-The `serve` container reads `ANTHROPIC_API_KEY` from the compose `env_file`
-(`../../.env` relative to this directory). The host driver does **not** need it.
-
 ```sh
 # repo root .env
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-An `.env.example` at the repo root shows the expected format.
+An `.env.example` at the repo root shows the expected format. The **host driver**
+loads this (`pnpm start:env`, Step 5) and registers the key as an **env bundle**
+— see "Key delivery" below. (The `serve` container does not need the key.)
 
-### Step 3 — (Linux without Docker Desktop) set `DOCKER_GID`
+**Key delivery (how the worker gets the API key).** Sibling worker containers run
+on the host daemon, so they cannot read secrets staged into the `serve` container's
+local filesystem. Instead the API key rides an **env bundle**: the driver registers
+it (`client.env.register`), the bundle lands in content-addressed storage (MinIO),
+and each worker fetches it and merges it into the adapter env — the same path all
+bundle config travels. The only worker-boot config that *can't* be a bundle is the
+S3 endpoint + creds (the worker needs them to *reach* the bundle store); those ride
+`extraEnv` on the `LocalDockerProvider`. The audit signer uses a deterministic dev
+keypair (fixed seed in the config) so the in-container `serve` (signs) and the host
+driver (verifies) agree — production would use KMS / a published key.
 
-On Linux hosts where the Docker socket group id differs from `999`, set:
+### Step 3 — Set `DOCKER_GID` to the Docker socket's group
+
+The non-root `agora` user (`uid 1000`) in the `serve` container needs the socket's
+group to launch sibling workers. The default `999` is wrong on Docker Desktop,
+where the socket is group `0`:
 
 ```sh
-export DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+export DOCKER_GID=$(docker run --rm -v /var/run/docker.sock:/var/run/docker.sock alpine stat -c '%g' /var/run/docker.sock)
+# Docker Desktop (Win/Mac): this is 0.  Many Linux hosts: the `docker` group gid.
 ```
 
-The compose `group_add` uses `${DOCKER_GID:-999}` so the non-root `agora` user
-(`uid 1000`) in the `serve` container can write to `/var/run/docker.sock`.
+The compose `group_add` uses `${DOCKER_GID:-999}`.
 
 ### Step 4 — Start the compose stack
 
 From the **repo root** (or any directory — compose resolves paths relative to
-the file):
+the file), passing `DOCKER_GID`:
 
 ```sh
-docker compose -f examples/offload-minio/docker-compose.yml up
+DOCKER_GID=0 docker compose -f examples/offload-minio/docker-compose.yml up
 ```
 
 This starts:
@@ -152,17 +164,19 @@ driver.
 
 ### Step 5 — Run the host driver
 
-From the `examples/offload-minio` directory:
+From the `examples/offload-minio` directory (`start:env` loads the repo-root
+`.env` so the driver has the key to register the env bundle):
 
 ```sh
 AGORA_S3_ENDPOINT=http://localhost:9000 \
 AGORA_S3_ACCESS_KEY=minioadmin \
 AGORA_S3_SECRET_KEY=minioadmin \
-pnpm start
+pnpm start:env
 ```
 
-The driver (no API key needed):
+The driver (needs `ANTHROPIC_API_KEY`, loaded by `start:env`):
 
+0. Registers the `claude-key` **env bundle** (the API key) into shared MinIO storage.
 1. Registers the `code-edit` / `verify` subagents and the fixture capability
    into shared MinIO storage.
 2. Submits `plan.json` via `OperationsApi` over the S3 mailbox (non-blocking).

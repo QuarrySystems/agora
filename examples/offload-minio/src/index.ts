@@ -101,6 +101,27 @@ async function main(): Promise<void> {
     capabilities: ['minio-cap'],
   });
 
+  // 1b. Deliver ANTHROPIC_API_KEY to workers via an env BUNDLE. Bundles ride
+  //     content-addressed storage (MinIO), so sibling worker containers fetch +
+  //     merge it into the adapter env — unlike per-dispatch inline secrets, which
+  //     stage to the serve container's local FS that workers cannot read.
+  //     Plain bundle value (local proof, throwaway key); allowCredentialPatterns
+  //     permits the credential-shaped value. plan.json items reference it via
+  //     inputs.env: ["claude-key"].
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error('ANTHROPIC_API_KEY not set — run the driver via `pnpm start:env` (loads ../../.env).');
+    process.exit(1);
+  }
+  await client.env.register({
+    name: 'claude-key',
+    values: { ANTHROPIC_API_KEY: apiKey },
+    // The key is intentionally a credential-shaped bundle value; allow the
+    // 'anthropic-key' scanner pattern (the API's sanctioned escape hatch).
+    // It rides content-addressed storage (MinIO) → workers fetch it cross-container.
+    allowCredentialPatterns: ['anthropic-key'],
+  });
+
   // 2. Build the OperationsApi over the orch context (transport + anchor + storage).
   //    No SQLite opened here — the serve container holds the single-writer store (D3).
   const api = new OperationsApi({

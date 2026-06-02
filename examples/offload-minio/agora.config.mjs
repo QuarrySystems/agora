@@ -9,6 +9,7 @@
 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createPrivateKey, createPublicKey, sign as edSign } from 'node:crypto';
 
 import { S3Client } from '@aws-sdk/client-s3';
 import { AgoraClient, NoopCredentialProvider, StdoutResultSink } from '@quarry-systems/agora-client';
@@ -70,9 +71,31 @@ const anchor = new S3ObjectLockAnchor(
 // ---------------------------------------------------------------------------
 // Signer — in-memory key generation only, no I/O.
 // ---------------------------------------------------------------------------
-const signer = createLocalSigner();
+// Deterministic dev signer. serve (signs the audit root) and the host driver
+// (verifies it) are SEPARATE processes — a random per-process keypair
+// (createLocalSigner) would never verify cross-process. Derive ONE ed25519
+// keypair from a fixed seed shared via this config, so both sides match.
+// Override with AGORA_SIGNER_SEED_HEX (64 hex chars). DEV ONLY — for production
+// the verifier obtains the signer's public key out-of-band (e.g. KMS / a
+// published key), not a shared secret seed.
+const _seedHex =
+  process.env.AGORA_SIGNER_SEED_HEX ??
+  '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+const _pkcs8 = Buffer.concat([
+  Buffer.from('302e020100300506032b657004220420', 'hex'), // PKCS8 ed25519 prefix
+  Buffer.from(_seedHex, 'hex'), // 32-byte seed
+]);
+const _privKey = createPrivateKey({ key: _pkcs8, format: 'der', type: 'pkcs8' });
+const _pubDer = createPublicKey(_privKey).export({ type: 'spki', format: 'der' });
+const signer = {
+  keyRef: 'minio-proof-dev',
+  publicKey: _pubDer,
+  async sign(root) {
+    return { alg: 'ed25519', bytes: new Uint8Array(edSign(null, Buffer.from(root), _privKey)), keyRef: 'minio-proof-dev' };
+  },
+};
 
-/** Verify an ed25519 signature produced by our local signer. */
+/** Verify an ed25519 signature against the shared dev public key. */
 const verifySignature = (root, sig) => verifyEd25519(root, sig, signer.publicKey);
 
 // ---------------------------------------------------------------------------
@@ -112,14 +135,14 @@ export default client;
 // DispatchExecutor does no I/O until fire() is called.
 // ---------------------------------------------------------------------------
 function makeExecutors() {
-  const opts = {
-    client,
-    target: 'local',
-    workerImage,
-    secrets: {
-      ANTHROPIC_API_KEY: { inline: process.env.ANTHROPIC_API_KEY ?? '' },
-    },
-  };
+  // No per-dispatch inline secrets: ANTHROPIC_API_KEY is delivered to workers via
+  // an env BUNDLE (registered by the driver, ride-along in content-addressed
+  // storage = MinIO). Per-dispatch inline secrets stage to LocalSecretStore on the
+  // serve container's local FS, which sibling worker containers (launched on the
+  // host daemon) cannot read — bundles travel through storage, so they can.
+  // The only worker-boot config (S3 endpoint + AWS creds) rides extraEnv on the
+  // LocalDockerProvider above, because it is needed BEFORE bundles can be fetched.
+  const opts = { client, target: 'local', workerImage };
   return {
     'dispatch-a': new DispatchExecutor(opts),
     'dispatch-b': new DispatchExecutor(opts),

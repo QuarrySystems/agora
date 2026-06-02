@@ -103,8 +103,10 @@ services:
       # Config reads AGORA_S3_ACCESS_KEY / AGORA_S3_SECRET_KEY for its S3Client.
       AGORA_S3_ACCESS_KEY: minioadmin
       AGORA_S3_SECRET_KEY: minioadmin
-      # Anthropic key — interpolated from the repo-root .env at compose time.
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      # Anthropic key is supplied by `env_file: ../../.env` below — do NOT also
+      # list it here: a compose `environment:` entry overrides `env_file`, and the
+      # `${ANTHROPIC_API_KEY}` interpolation resolves against the project-dir .env
+      # (which doesn't exist here), blanking the key.
       # SQLite run-state DB — persisted on the named volume below.
       AGORA_DB_PATH: /data/agora.db
     volumes:
