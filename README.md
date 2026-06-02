@@ -215,13 +215,14 @@ check on `package.json` dependencies.
 ## Documentation
 
 - [Roadmap](ROADMAP.md) — what's shipped in V1, what's planned next (V1.1, additive), and what's left as a branch. Also as a [docs-site page](https://quarrysystems.github.io/agora/explanation/project-status-roadmap/).
+- [Changelog](CHANGELOG.md) — notable changes per release. [Releasing](RELEASING.md) documents how a release is cut (manual today).
 - [Full MVP design spec](docs/superpowers/specs/2026-05-21-agora-mvp-design.md) — the §1–§11 design canon.
 - [Orchestrator architecture spec](docs/superpowers/specs/2026-05-28-agora-orchestrator-design.md) — the *agora-offload* design: registries, effect tiers, queues/deps/locks, the intent outbox, and the trunk trap-check driving the `agora-orchestrator` package.
 - [Offload V1 delivery spec](docs/superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the shipped V1 slice (`serve` + escape + tamper-evident audit + operator surface), the security/determinism/auditability edge, and the honesty constraints. See also [How an offload run executes](https://quarrysystems.github.io/agora/explanation/how-offload-runs/).
-- [Architecture decisions](https://quarrysystems.github.io/agora/explanation/decisions/) — seventeen ADRs covering
+- [Architecture decisions](https://quarrysystems.github.io/agora/explanation/decisions/) — eighteen ADRs covering
   package scope, repo location, runtime-adapter seam, secret TTL,
   lifecycle vocabulary, MCP auth model, the source-available (BSL) license,
-  and more.
+  orchestration-as-a-separate-layer (ADR-0018, superseding ADR-0010), and more.
 - [Examples](examples/) — worked, runnable demonstrations against the
   local provider stack.
 
