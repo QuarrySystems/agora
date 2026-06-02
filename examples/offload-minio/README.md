@@ -52,7 +52,7 @@ green checkmark does and does not cover.
 | What | Detail |
 |---|---|
 | `claude-code` worker | Every edit invokes the real adapter: `boot → secrets → baseline → RuntimeAdapter.invoke() (real claude CLI) → git diff → patch upload → result_ref` |
-| Key delivery | `ANTHROPIC_API_KEY` is delivered to workers via an **env bundle** (rides content-addressed MinIO storage), since sibling workers can't read secrets staged to the `serve` container's local FS. See "Key delivery" below. |
+| Secret lane | `ANTHROPIC_API_KEY` is staged as a per-dispatch secret into **Secrets Manager** (LocalStack here, real SM on AWS) and resolved by the worker over the network — injected, log-redacted, **refs-only in the audit**. See "Key delivery" below. |
 | S3 protocol | The real AWS SDK talks to MinIO over the real S3 wire protocol — a substitute *endpoint*, not a mock |
 | Merkle audit + object-lock anchor | Full audit chain sealed and anchored into a real object-lock backend |
 | Dispatch engine | Deps, resource locks, retry, fire/reconcile — all real |
@@ -110,20 +110,27 @@ docker build -t ghcr.io/quarrysystems/agora-worker:latest \
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-An `.env.example` at the repo root shows the expected format. The **host driver**
-loads this (`pnpm start:env`, Step 5) and registers the key as an **env bundle**
-— see "Key delivery" below. (The `serve` container does not need the key.)
+An `.env.example` at the repo root shows the expected format. The **`serve`
+container** reads it (via compose `env_file`) and stages the key as a per-dispatch
+secret — see "Key delivery" below. The **host driver needs no key**.
 
-**Key delivery (how the worker gets the API key).** Sibling worker containers run
-on the host daemon, so they cannot read secrets staged into the `serve` container's
-local filesystem. Instead the API key rides an **env bundle**: the driver registers
-it (`client.env.register`), the bundle lands in content-addressed storage (MinIO),
-and each worker fetches it and merges it into the adapter env — the same path all
-bundle config travels. The only worker-boot config that *can't* be a bundle is the
-S3 endpoint + creds (the worker needs them to *reach* the bundle store); those ride
-`extraEnv` on the `LocalDockerProvider`. The audit signer uses a deterministic dev
-keypair (fixed seed in the config) so the in-container `serve` (signs) and the host
-driver (verifies) agree — production would use KMS / a published key.
+**Key delivery (how the worker gets the API key).** `ANTHROPIC_API_KEY` flows the
+**proper secret lane**: the serve-side executor stages it as a per-dispatch secret
+into **LocalStack Secrets Manager** (`AwsSecretStore`), and the worker resolves the
+returned ref **over the network** — so it works across the serve→sibling-worker
+container boundary, and the value is injected + log-redacted with **refs-only in the
+audit**. (A per-dispatch `LocalSecretStore` would stage to the serve container's
+local FS, which sibling workers can't read; Secrets Manager is network-reachable, so
+it doesn't have that problem. On real AWS this is AWS Secrets Manager + an IAM task
+role — no LocalStack.) The worker reaches Secrets Manager via
+`AWS_ENDPOINT_URL_SECRETS_MANAGER` (delivered through `extraEnv`).
+
+The only worker-boot config delivered as plain container env (via `extraEnv`) is the
+**S3 endpoint + creds** — the worker needs S3 access at boot, before it can resolve
+any ref. Non-secret config otherwise travels as env *bundles*. The audit signer uses
+a deterministic dev keypair (fixed seed in the config) so in-container `serve`
+(signs) and the host driver (verifies) agree — production would use KMS / a
+published key.
 
 ### Step 3 — Set `DOCKER_GID` to the Docker socket's group
 
@@ -153,6 +160,8 @@ This starts:
   and 9001 (console).
 - **`minio-init`** — one-shot bucket creation: `agora-audit` (with object lock)
   and `agora-data` (unlocked). Runs after MinIO is healthy, then exits.
+- **`localstack`** — AWS Secrets Manager emulator on host port 4566. serve stages
+  the per-dispatch API key here; workers resolve it over the network.
 - **`serve-data-init`** — one-shot chown of the SQLite volume so uid 1000 can
   write. Runs before `serve`.
 - **`serve`** — the `agora-orchestrator` serve container. Mounts the host Docker
@@ -164,19 +173,18 @@ driver.
 
 ### Step 5 — Run the host driver
 
-From the `examples/offload-minio` directory (`start:env` loads the repo-root
-`.env` so the driver has the key to register the env bundle):
+From the `examples/offload-minio` directory (the driver needs **no** API key — the
+serve container stages it):
 
 ```sh
 AGORA_S3_ENDPOINT=http://localhost:9000 \
 AGORA_S3_ACCESS_KEY=minioadmin \
 AGORA_S3_SECRET_KEY=minioadmin \
-pnpm start:env
+pnpm start
 ```
 
-The driver (needs `ANTHROPIC_API_KEY`, loaded by `start:env`):
+The driver (no API key needed):
 
-0. Registers the `claude-key` **env bundle** (the API key) into shared MinIO storage.
 1. Registers the `code-edit` / `verify` subagents and the fixture capability
    into shared MinIO storage.
 2. Submits `plan.json` via `OperationsApi` over the S3 mailbox (non-blocking).

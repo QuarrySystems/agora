@@ -185,9 +185,10 @@ It swaps the local stack for free, S3-compatible substitutes (no AWS account):
 - the audit bundle comes back `report.guarantee: 'external-immutable'` /
   `report.claim: 'tamper-evident'`.
 
-It is one `docker compose up` plus `pnpm start:env`. Because `serve` and the
-workers are now separate containers, config and secrets reach workers differently
-(env bundles over storage, not local-FS staging) — the
+It is one `docker compose up` plus `pnpm start`. Because `serve` and the workers
+are now separate containers, secrets reach workers via a network-reachable store
+(Secrets Manager — LocalStack here) and non-secret config via env bundles, rather
+than local-FS staging — the
 [self-hosted delivery model](/agora/explanation/how-offload-runs/#running-serve-in-a-container-self-hosted-delivery)
 explains why, and the example's README walks the exact steps.
 

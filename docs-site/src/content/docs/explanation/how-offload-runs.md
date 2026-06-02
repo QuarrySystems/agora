@@ -195,16 +195,19 @@ example:
   `LocalDirMailbox` directories live in the `serve` container; siblings can't see
   them. Use an S3-backed `StorageProvider` + `S3Mailbox` so workers fetch bundles
   and artifacts over the wire.
-- **Deliver per-dispatch secrets/config via env *bundles*, not inline secrets.** A
-  per-dispatch inline secret stages to the `serve` container's local
-  `LocalSecretStore` dir — which a sibling worker can't read. An **env bundle**
-  rides content-addressed storage, so the worker fetches it and merges it into the
-  adapter env. (On real AWS, a network-reachable secret store like Secrets Manager
-  works directly; the bundle route is what makes the *self-hosted* path work.)
+- **Secrets need a *network-reachable* `SecretStore`, not a local-FS one.** A
+  per-dispatch secret stages through the target's `SecretStore`; `LocalSecretStore`
+  writes to the `serve` container's local dir, which a sibling worker can't read.
+  Use a networked store — **AWS Secrets Manager** (or **LocalStack** standing in for
+  it when self-hosting): serve stages the secret, the worker resolves the ref over
+  the wire, and the value is injected + log-redacted with **refs-only in the audit**.
+  Non-secret config travels as **env bundles** (content-addressed storage, so they
+  reach workers too).
 - **One bootstrap exception — S3 access itself.** The worker builds its S3 client
-  at boot to fetch those very bundles, so the S3 endpoint + credentials can't
-  themselves be a bundle. They ride plain container env via the provider's
-  `extraEnv`. Everything *downstream* of storage access goes through bundles.
+  at boot to fetch bundles and resolve refs, so the S3 endpoint + credentials can't
+  come from a bundle. They ride plain container env via the provider's `extraEnv`
+  (along with the Secrets Manager endpoint). Everything *downstream* of storage
+  access goes through bundles or the secret store.
 
 One more cross-process subtlety: when `serve` (which **signs** each audit epoch)
 and the client that **verifies** the bundle are different processes, they must

@@ -154,15 +154,19 @@ example is [`examples/offload-minio/`](https://github.com/quarrysystems/agora/tr
 |---|---|---|
 | `endpoint`, `forcePathStyle`, `region` | `new S3StorageProvider({ bucket, endpoint, forcePathStyle: true, region })` | Point content-addressed storage at the custom endpoint (or inject a pre-built `client`). |
 | `S3Mailbox` | `new MailboxSubmissionTransport(new S3Mailbox(s3MailboxClient))` | The submission inbox/outbox over S3 (the cross-machine analogue of `LocalDirMailbox`). |
+| `AwsSecretStore` + `AWS_ENDPOINT_URL_SECRETS_MANAGER` | `secretStores: { aws: new AwsSecretStore() }` + the endpoint env on serve & workers | Secrets (e.g. the API key) staged into Secrets Manager — LocalStack for self-host, real SM on AWS. Network-reachable, so it crosses the serve→worker boundary; refs-only in the audit. |
 | `AGORA_S3_ENDPOINT` (+ `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION`) | **worker container env** | The worker builds its own S3 client at boot to fetch bundles/upload patches; it reads these to reach the same endpoint. |
-| `extraEnv` | `new LocalDockerProvider({ extraEnv: { AGORA_S3_ENDPOINT, AWS_* } })` | Delivers the worker-boot env above to every launched worker container. |
+| `extraEnv` | `new LocalDockerProvider({ extraEnv: { AGORA_S3_ENDPOINT, AWS_*, AWS_ENDPOINT_URL_SECRETS_MANAGER } })` | Delivers the worker-boot env above (S3 bootstrap + the Secrets Manager endpoint) to every launched worker container. |
 
-The endpoint/creds **must** reach the worker as container env (via `extraEnv`),
-not via a bundle — the worker needs S3 access *before* it can fetch any bundle.
-Everything else (the API key, app config) should travel as
-[env bundles](/agora/explanation/how-offload-runs/#running-serve-in-a-container-self-hosted-delivery),
-which ride content-addressed storage and so reach sibling worker containers.
+The S3 endpoint/creds **must** reach the worker as container env (via `extraEnv`),
+not via a bundle — the worker needs S3 access *before* it can resolve anything else.
+**Secrets** (the API key) go the proper secret lane — staged into a
+network-reachable `SecretStore` (Secrets Manager) and resolved by the worker over
+the wire, **not** a bundle value. Non-secret config travels as
+[env bundles](/agora/explanation/how-offload-runs/#running-serve-in-a-container-self-hosted-delivery)
+(content-addressed storage, reach workers).
 
 > On **real AWS** none of this is needed: the default S3 endpoint + an IAM task
 > role + AWS Secrets Manager all work without custom endpoints or `extraEnv`.
-> These options exist for self-hosted / local S3.
+> LocalStack just stands in for Secrets Manager (and the S3 opts for MinIO) when
+> self-hosting.
