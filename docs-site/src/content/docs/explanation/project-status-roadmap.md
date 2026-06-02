@@ -20,7 +20,7 @@ design and shapes the whole roadmap.
 
 ## Now — shipped in V1
 
-The local-Docker acceptance path is proven live: safe fan-out under file-locks, a
+The local-Docker acceptance path is proven live: safe fan-out under resource locks, a
 per-edit patch artifact (`result_ref`), and a verifiable **tamper-detecting**
 audit bundle.
 

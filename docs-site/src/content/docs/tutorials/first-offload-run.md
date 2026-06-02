@@ -1,6 +1,6 @@
 ---
 title: Your first offload run
-description: Submit a three-task DAG, watch it fan out under file-locks, and verify the audit bundle.
+description: Submit a three-task DAG, watch it fan out under resource locks, and verify the audit bundle.
 ---
 
 In the [first dispatch tutorial](/agora/tutorials/first-dispatch/) you ran one

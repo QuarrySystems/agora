@@ -9,7 +9,7 @@ running locally against Docker as in production against Fargate + S3.
 Provider seams (compute, credentials, storage, secret store, channel,
 result sink) keep the registry shape and dispatch contract identical
 across environments. The orchestrator layer adds a DAG planner on top:
-disjoint file-locks fan out in parallel; shared locks serialize; each
+disjoint resource locks fan out in parallel; shared locks serialize; each
 finished task yields a reviewable patch (`result_ref`); the whole run
 produces a tamper-evident audit trail — verifiable at the
 external-immutable tier (S3 Object Lock), tamper-detecting on the local
@@ -63,7 +63,7 @@ Fargate + S3 production variant) lives at
 
 The orchestrator surfaces as the `agora orch` subcommand. A `plan.json`
 describes a DAG of agent tasks with `depends_on`, `resourceLocks`, and
-per-task subagent/env/target bindings. Disjoint file-locks fan out in
+per-task subagent/env/target bindings. Disjoint resource locks fan out in
 parallel; shared locks serialize automatically. Each finished task drops a
 reviewable patch artifact (`result_ref`). The run produces a tamper-evident
 audit bundle — verifiable at the external-immutable tier (S3 Object Lock),
@@ -117,7 +117,7 @@ Start here if you're new:
   local Docker. Build the worker image, write `agora.config.mjs`, wire the
   CLI and MCP server, register and dispatch.
 - [Your first offload run](https://quarrysystems.github.io/agora/tutorials/first-offload-run/) — submit a
-  small DAG, watch it fan out under file-locks, and verify the audit bundle.
+  small DAG, watch it fan out under resource locks, and verify the audit bundle.
 
 Reference:
 
