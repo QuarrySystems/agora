@@ -69,6 +69,54 @@ and a concrete S3-lock client), so Tier-2 Fargate is a config swap, not new code
 - Everything already deferred by the V1 spec (Intent/interpreter, `dev` pack,
   budgets, `cron`, RBAC, BYOK).
 
+## 0.2 Representativeness boundary — what a green Tier-1 actually means
+
+A passing Tier-1 must not be over-read. This section pins exactly what the green
+checkmark does and does not cover, so neither a future reader nor a marketing
+claim mistakes it for a Fargate proof.
+
+**The no-model adapter swaps exactly one step.** A worker run is a fixed pipeline;
+the `RuntimeAdapter.invoke()` call is one step in it:
+
+```
+boot → resolve secrets → agora-setup.sh → captureBaseline (git write-tree)
+   → RuntimeAdapter.invoke()      ← the ONLY thing the no-model adapter changes
+   → computeWorkspacePatch (git diff) → upload patch artifact
+   → write .agora/output.json → emit lifecycle events
+```
+
+Everything except `invoke()` is identical between no-model and real-Claude runs,
+and identical between local and remote. Crucially, **swapping the adapter is the
+designed extension seam** (`loadRuntimeAdapter` + `AGORA_RUNTIME_ADAPTER`), the same
+mechanism a future Bedrock/Codex runtime uses — a no-model adapter is a legitimate
+alternate runtime, **not a mock**.
+
+**Fully exercised by the no-model majority (the orchestration/transport layer):**
+serve-over-S3 with no inbound networking, multi-executor routing, container boot +
+secret staging + baseline, the git-diff patch escape → `result_ref`, S3-backed
+content-addressed storage, the Merkle audit + object-lock anchor + verify, and the
+dispatch fire/reconcile + deps + locks + retry engine. These paths cannot observe
+what `invoke()` did — so a no-model run proves them as well as a real-model run.
+
+**Covered ONLY by the single real-Claude item (the AI-execution path):** spawning
+the `claude` CLI, the API key used as a live network secret, the agent edit loop,
+non-determinism, latency, token cost. The no-model adapter does **not** represent
+any of this — which is why exactly one real item exists.
+
+**NOT covered by Tier-1 at all (true regardless of adapter — these are Tier-2):**
+- Fargate mechanics: ECS task launch, IAM task roles, EFS volume mount, the
+  `agora-providers-fargate` compute path (Tier-1 uses `local-docker`).
+- Real AWS S3 + real Object-Lock `COMPLIANCE` enforcement (vs MinIO's implementation).
+- `KmsSigner` (Tier-1 uses the local ed25519 signer).
+- Live egress to Anthropic from inside a VPC-bound task.
+
+The architectural bet is that every NOT-covered item is a **seam swap** (target
+string, endpoint, signer), not new code — so Tier-1 de-risks everything *up to* the
+swap, and Tier-2 validates the AWS implementations *behind* the seams. The model
+call is deliberately the least-covered piece because it is the least uncertain: it
+already runs green locally in `offload-fanout`. Spending the free test budget on the
+never-tested plumbing is the point.
+
 ---
 
 ## 1. New components
