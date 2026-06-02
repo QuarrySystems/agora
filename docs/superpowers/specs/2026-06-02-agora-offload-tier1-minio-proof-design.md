@@ -54,15 +54,18 @@ and a concrete S3-lock client), so Tier-2 Fargate is a config swap, not new code
 - Patch escape → `result_ref` against S3-backed content-addressed storage.
 - `external-immutable` audit tier against MinIO Object Lock, **including the
   DB-tamper-fails-verification** test.
+- `serve` runs **as a container with no published port** — reachable only through
+  the MinIO mailbox. The strongest available demonstration of the
+  no-inbound-networking / "lives outside local env" model short of a remote host.
 - Zero/near-zero cost: most work runs a no-model adapter; one item runs real Claude.
 
 **Defers (explicitly out of scope):**
 - Real AWS (Fargate compute, real S3, EFS volume, KMS signer) — Tier 2.
 - Genuine cross-*machine* dispatch (second physical box via `DOCKER_HOST=ssh`).
   Tier-1 routes to two executors that both target the *local* Docker daemon; this
-  proves the routing seam. Cross-machine is a target-string change later.
-- Containerizing `serve` itself (host Node process is sufficient to prove the
-  mailbox decoupling — see §5). Containerization is cosmetic for Tier 1.
+  proves the routing seam. Cross-machine is a target-string change later. (`serve`
+  *is* containerized in Tier 1 — see §5 — but it dispatches to the **local** host
+  daemon via the mounted socket, not a remote one.)
 - Everything already deferred by the V1 spec (Intent/interpreter, `dev` pack,
   budgets, `cron`, RBAC, BYOK).
 
@@ -115,15 +118,44 @@ edge.
   `delete` (consume inbox entries) and storage round-trips fine without lock, so
   both live in `agora-data`; only the WORM anchor roots go in `agora-audit`. Putting
   the mailbox in the locked bucket would break inbox consumption.
-- **`serve`** runs as a **host Node process** (`serve({ orchestrator, transport,
-  signal })`), exactly as `offload-fanout` does. It is the only DB opener and the
-  only `tick()` caller. The client (`OperationsApi`) reaches it **only** through
-  the MinIO mailbox — that is what proves the no-inbound-networking model
-  regardless of whether `serve` is containerized.
-- **Workers** run in **local Docker** via `LocalDockerProvider`. This requires the
-  worker image built locally (it is GHCR-private):
-  `docker build -t ghcr.io/quarrysystems/agora-worker:latest -f docker/agora-worker/Dockerfile .`
-  — see §4 for the no-model adapter addition.
+- **`serve` runs as its own container** in the compose stack (no published port):
+  - mounts the **host Docker socket** (`/var/run/docker.sock`) so it launches
+    worker containers as **siblings** on the host daemon (docker-out-of-docker).
+    This is safe here precisely because storage is S3/MinIO, not host bind-mounts
+    (the substrate-topology constraint — remote/containerized dispatch needs object
+    storage). `LocalDockerProvider` reads the socket via `new Docker()` by default.
+  - mounts a **named Docker volume** for the SQLite run-state DB (D4: persistent
+    volume; the local analogue of EFS/EBS).
+  - is the **only DB opener** and the only `tick()` caller. The client
+    (`OperationsApi`) reaches it **only** through the MinIO mailbox — serve exposes
+    no inbound port at all.
+  - **config loading:** the serve container needs the orchestrator constructed from
+    `agora.config.mjs` (executors/anchor/transport). *Plan task:* confirm whether
+    `agora orch serve` loads the example config directly, or a thin
+    `serve-entrypoint.mjs` that imports the config and calls `serve()` is needed.
+- **Workers** run in **local Docker** via `LocalDockerProvider` (started by serve
+  on the host daemon). Requires the worker image built locally (it is GHCR-private)
+  with the no-model adapter baked in (§3.2):
+  `docker build -t agora-worker-nomodel:latest -f examples/offload-minio/Dockerfile .`
+  (which `FROM`s `ghcr.io/quarrysystems/agora-worker:latest`, itself built from
+  `docker/agora-worker/Dockerfile`).
+
+### 2.1 MinIO endpoint duality (a wiring nuance, easy to get wrong)
+
+`LocalDockerProvider` sets **no `NetworkMode`** (confirmed in source — it only sets
+`HostConfig.Binds`), so sibling worker containers land on the **default bridge**,
+not the compose network. Consequently MinIO is published on the host and there are
+**two endpoints for the same MinIO**:
+
+| Caller | MinIO endpoint |
+|---|---|
+| Host client (`submit`/`watch`/`audit` via `OperationsApi`) | `http://localhost:9000` |
+| In-container `serve` + sibling worker containers (on default bridge) | `http://host.docker.internal:9000` |
+
+So the example config must use the in-container endpoint for the executor/worker
+and serve paths, and the host endpoint for the client path. (On Linux without
+Docker Desktop, `host.docker.internal` may need the `host-gateway` mapping; noted
+as a plan portability detail.)
 
 ---
 
@@ -159,11 +191,16 @@ no-model/real choice is purely the `AGORA_RUNTIME_ADAPTER` env var. Concretely: 
 thin `examples/offload-minio/Dockerfile` that `FROM`s the base worker image and
 `COPY`s the compiled `no-model` adapter to `/opt/agora/adapters/no-model/index.js`.
 
+A mount is *possible* — `LocalDockerProvider.extraBinds` (confirmed present) accepts
+Dockerode `<host>:<container>` strings, so the adapter dir could be bind-mounted
+into the worker for a faster local edit loop. It is **not** the default: a host bind
+source doesn't exist on a remote daemon, so it breaks the local→remote parity that
+is the whole point of Tier 2. Bake for the proof; mount only as a dev convenience.
+
 > **Confirm during implementation (plan task 1):** read `docker/agora-worker/Dockerfile`
-> to verify the adapters path and base layout, and confirm `LocalDockerProvider`
-> does not expose a simpler bind-mount for `adaptersRoot` (if it does, a mount is
-> preferable to a derived image). The env-var selection mechanism above is
-> confirmed; only the *delivery* mechanism needs this check.
+> to verify the adapters path (`/opt/agora/adapters`) and base layout before writing
+> the derived Dockerfile. The env-var selection and `extraBinds` mechanisms are
+> already confirmed in source; only the base-image path needs this check.
 
 ---
 
@@ -171,18 +208,26 @@ thin `examples/offload-minio/Dockerfile` that `FROM`s the base worker image and
 
 Modeled on `examples/offload-fanout/agora.config.mjs`, with these swaps:
 
-- **storage** → `S3StorageProvider` with an injected `S3Client` pointed at MinIO
-  (`endpoint: http://localhost:9000`, `forcePathStyle: true`, region/creds from
+The MinIO endpoint is **read from an env var** (`AGORA_S3_ENDPOINT`), *not*
+hardcoded — because the same config file is imported by both the in-container serve
+path (`host.docker.internal:9000`) and the host client path (`localhost:9000`) per
+§2.1. Compose sets it for the serve container; the host driver sets it for the
+client.
+
+- **storage** → `S3StorageProvider` with an injected `S3Client`
+  (`endpoint: $AGORA_S3_ENDPOINT`, `forcePathStyle: true`, region/creds from
   compose env), bucket `agora-data` (storage prefix).
-- **transport** → `new MailboxSubmissionTransport(new S3Mailbox(new AwsS3MailboxClient({ endpoint, bucket: 'agora-data', prefix: 'mailbox/', ... })))`.
-- **anchor** → `new S3ObjectLockAnchor(new AwsS3LockClient({ endpoint, bucket: 'agora-audit', ... }), 'agora-audit')`
+- **transport** → `new MailboxSubmissionTransport(new S3Mailbox(new AwsS3MailboxClient({ endpoint: $AGORA_S3_ENDPOINT, bucket: 'agora-data', prefix: 'mailbox/', ... })))`.
+- **anchor** → `new S3ObjectLockAnchor(new AwsS3LockClient({ endpoint: $AGORA_S3_ENDPOINT, bucket: 'agora-audit', ... }), 'agora-audit')`
   (replaces `LocalAnchor`; the object-lock bucket).
 - **executors** → **two** dispatch executors, both `target: 'local'`, same
-  `workerImage` (the §3.2 image), keyed `dispatch-a` and `dispatch-b`.
+  `workerImage` (the §3.2 image), keyed `dispatch-a` and `dispatch-b`. The worker
+  env carries `AGORA_S3_ENDPOINT=host.docker.internal:9000` (sibling containers are
+  on the default bridge, §2.1).
 - **signer** → `createLocalSigner()` (ed25519) — unchanged; `KmsSigner` is Tier-2.
 
 All MinIO-specific values (endpoint, bucket names, `forcePathStyle`, credentials)
-live here in config — **not** in any class name (§1).
+live in config/env — **not** in any class name (§1).
 
 ---
 
@@ -198,10 +243,22 @@ A single submitted `Run` that exercises every claim at once:
   on its own fixture file — proves the real AI path.
 - **1 `verify` gate item** that `depends_on` all edits — proves DAG ordering.
 
-The driver follows `offload-fanout/src/index.ts`: wire client + orchestrator +
-`S3Mailbox` transport + `serve`, then `OperationsApi.submit → watch → status →
-audit`. A live-run guard checks `ANTHROPIC_API_KEY` only because of the one real
-item; the no-model majority needs no key.
+Unlike `offload-fanout` (which runs serve and the client in one process), Tier-1
+**splits the two roles** because serve is containerized (§2):
+
+- **Service side** — the serve container constructs orchestrator + `S3Mailbox`
+  transport + anchor from the config and runs the `serve()` loop. No client code,
+  no published port.
+- **Client driver** (`examples/offload-minio/src/index.ts`, host process) — builds
+  only an `OperationsApi` over the **same** `S3Mailbox` transport (host endpoint)
+  and the storage/anchor for reads, then `submit → watch → status → audit`. It
+  never holds the `orchestrator` or `store` object — it talks to the service purely
+  through MinIO. A live-run guard checks `ANTHROPIC_API_KEY` only because of the one
+  real item; the no-model majority needs no key.
+
+`docker compose up` starts MinIO (+ bucket init) and serve; the host driver is then
+run against the same MinIO. `ANTHROPIC_API_KEY` is passed into the serve container
+(it stages secrets into the one real worker), not into the host driver.
 
 ---
 
@@ -240,17 +297,30 @@ item; the no-model majority needs no key.
 ## 8. Risks & open details
 
 - **Primary risk — no-model adapter delivery into the container** (§3.2). Mitigated
-  by the confirmed env-var selection mechanism; only the image-vs-mount delivery
-  needs the plan's task-1 check. Fallback if the derived image is awkward: a
-  bind-mount of the adapter dir, if `LocalDockerProvider` supports extra mounts.
+  by the confirmed env-var selection mechanism; only the bake-vs-mount delivery
+  needs the plan's task-1 check. `extraBinds` (confirmed present) makes the mount
+  fallback viable for local iteration, but bake is the portable default (mount host
+  paths don't survive the local→remote move).
+- **Docker-out-of-docker from the serve container** — serve must reach the host
+  daemon via the mounted socket. On Docker Desktop/Windows the socket path and
+  permissions differ from native Linux; the plan must confirm the mount works on
+  the dev host (this machine). Sibling workers (not children) keep isolation intact.
+- **MinIO endpoint duality + worker networking** (§2.1) — the two-endpoint setup is
+  the most error-prone wiring. The plan must verify sibling worker containers on the
+  default bridge can actually reach `host.docker.internal:9000` (and add the
+  `host-gateway` mapping on non-Desktop Linux). A worker that can't reach MinIO
+  fails the escape/storage step.
+- **serve container config loading** (§2) — confirm `agora orch serve` can load the
+  example `agora.config.mjs`, else add a thin `serve-entrypoint.mjs`.
 - **MinIO object-lock semantics** — bucket must be created with object lock
   *enabled* up front; `COMPLIANCE` mode + a short retention for the test. Verify
   the AWS SDK `PutObject` object-lock params (`ObjectLockMode`,
   `ObjectLockRetainUntilDate`) are honored by the MinIO version pinned in compose.
-- **`serve` host-process honesty** — the proof's "no inbound networking" claim
-  rests on the client using *only* the mailbox. Keep the driver from sharing the
-  `orchestrator`/`store` object with the client path; the client must go through
-  `OperationsApi` over the transport, exactly as `offload-fanout` already does.
+- **No-inbound-networking honesty** — the claim rests on the client using *only*
+  the mailbox. Containerizing serve with no published port enforces this
+  structurally (the host driver *cannot* reach serve directly), which is stronger
+  than the single-process `offload-fanout`; keep it that way (don't add a debug
+  port).
 - **Storage vs mailbox vs anchor buckets** — content-addressed artifacts
   (`S3StorageProvider`) and the mutable inbox/outbox (`S3Mailbox`) share the
   unlocked `agora-data` bucket under distinct prefixes; the WORM anchor roots
@@ -260,11 +330,17 @@ item; the no-model majority needs no key.
 
 ## 9. Tier-2 handoff (what this buys)
 
-When a paying reason justifies the real run, Tier 2 is:
+Tier-1 already containerizes serve, runs on object storage, and exercises the
+object-lock anchor — so Tier 2 is mostly substitution. When a paying reason
+justifies the real run:
 1. Promote `AwsS3MailboxClient` / `AwsS3LockClient` to `agora-storage-s3`
    (now a second consumer exists).
-2. Swap config endpoints MinIO → real S3; swap `createLocalSigner` → `KmsSigner`.
-3. Run `serve` in a container on Fargate with an EFS/EBS volume for SQLite (D4).
+2. Drop the `AGORA_S3_ENDPOINT` override so the SDK targets real S3; swap
+   `createLocalSigner` → `KmsSigner`.
+3. Move the **already-containerized** serve from compose onto Fargate with an
+   EFS/EBS volume for SQLite (D4). Compute changes from the local socket-mounted
+   daemon to a real `fargate` dispatch target — the executor map's `target` string,
+   not new code.
 4. Re-run the same `plan.json`. The §6 criteria should hold unchanged — that
    equivalence *is* the local→prod parity the V1 spec §7 calls for.
 
