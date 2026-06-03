@@ -33,11 +33,13 @@ export class SqliteScheduleStore implements ScheduleStore {
   }
 
   upsert(s: Schedule): void {
+    const next = new Date(s.nextDueAt).toISOString();
+    const last = s.lastFiredAt != null ? new Date(s.lastFiredAt).toISOString() : null;
     this.db.prepare(
       `INSERT INTO schedules(id,cron_expr,run_template,actor,last_fired_at,next_due_at)
        VALUES(@id,@cron,@run,@actor,@last,@next)
-       ON CONFLICT(id) DO UPDATE SET cron_expr=@cron,run_template=@run,actor=@actor,next_due_at=@next`,
-    ).run({ id: s.id, cron: s.cronExpr, run: JSON.stringify(s.run), actor: s.actor, last: s.lastFiredAt ?? null, next: s.nextDueAt });
+       ON CONFLICT(id) DO UPDATE SET cron_expr=@cron,run_template=@run,actor=@actor,last_fired_at=@last,next_due_at=@next`,
+    ).run({ id: s.id, cron: s.cronExpr, run: JSON.stringify(s.run), actor: s.actor, last, next });
   }
 
   due(nowMs: number): Schedule[] {
@@ -56,6 +58,10 @@ export class SqliteScheduleStore implements ScheduleStore {
 
   list(): Schedule[] {
     return (this.db.prepare('SELECT * FROM schedules ORDER BY id').all() as ScheduleRow[]).map(this.row);
+  }
+
+  close(): void {
+    this.db.close();
   }
 
   private row = (r: ScheduleRow): Schedule => ({
