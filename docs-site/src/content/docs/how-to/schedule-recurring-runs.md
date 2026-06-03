@@ -93,6 +93,24 @@ a slot falls due, it fires **one coalesced catch-up run** (for the most-recently
 missed slot) on the next startup, then resumes the normal cadence. Earlier
 missed slots are dropped, not replayed.
 
+### Release the store on shutdown
+
+`SqliteScheduleStore` holds an open SQLite handle (like `SqliteRunStateStore`).
+When `serve` returns — i.e. after the `SIGINT`/`SIGTERM` `AbortController` fires —
+call `close()` on the store so the database file lock is released. This matters
+on Windows, where an unreleased handle keeps the file locked. Close it after
+`serve` resolves in your `runService`:
+
+```js
+runService: async (signal) => {
+  try {
+    await serve({ orchestrator, transport, scheduler, signal });
+  } finally {
+    scheduleStore.close();
+  }
+},
+```
+
 ## 5. Remove a schedule
 
 ```bash
