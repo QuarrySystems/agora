@@ -299,19 +299,16 @@ describe('orch schedule', () => {
       expect(logs).toHaveLength(0);
     });
 
-    it('prints nothing (no-op) when no scheduleStore configured', async () => {
-      // list falls back to empty iterator: `store?.list() ?? []` — not an error
+    it('fails with a clear message when no scheduleStore configured', async () => {
       const oc = makeOrchContext(); // no scheduleStore
       const ctx = makeCtx(oc);
 
       const program = new Command();
       attachOrchCmd(program, ctx);
 
-      const logs = await captureLog(() =>
+      await expect(
         program.parseAsync(['orch', 'schedule', 'list'], { from: 'user' }),
-      );
-
-      expect(logs).toHaveLength(0);
+      ).rejects.toThrow('no scheduleStore');
     });
   });
 
@@ -361,7 +358,7 @@ describe('orch schedule', () => {
       expect(store._schedules.size).toBe(0);
     });
 
-    it('is a no-op (no error) when no scheduleStore configured', async () => {
+    it('fails with a clear message when no scheduleStore configured', async () => {
       const oc = makeOrchContext(); // no scheduleStore
       const ctx = makeCtx(oc);
 
@@ -369,10 +366,8 @@ describe('orch schedule', () => {
       attachOrchCmd(program, ctx);
 
       await expect(
-        captureLog(() =>
-          program.parseAsync(['orch', 'schedule', 'rm', '--id', 'x'], { from: 'user' }),
-        ),
-      ).resolves.toBeDefined();
+        program.parseAsync(['orch', 'schedule', 'rm', '--id', 'x'], { from: 'user' }),
+      ).rejects.toThrow('no scheduleStore');
     });
   });
 });

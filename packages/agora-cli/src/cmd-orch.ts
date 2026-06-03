@@ -85,7 +85,8 @@ export function attachOrchCmd(program: Command, ctx: CliContext): void {
 
   sched.command('list').action(async () => {
     const oc = await ctx.getOrchContext();
-    for (const s of oc.scheduleStore?.list() ?? []) {
+    if (!oc.scheduleStore) throw new Error('agora orch schedule: agora.config `orch` export provides no scheduleStore');
+    for (const s of oc.scheduleStore.list()) {
       console.log(`${s.id}\t${s.cronExpr}\tlast=${s.lastFiredAt ?? '-'}\tnext=${s.nextDueAt}`);
     }
   });
@@ -94,7 +95,8 @@ export function attachOrchCmd(program: Command, ctx: CliContext): void {
     .requiredOption('--id <id>')
     .action(async (opts) => {
       const oc = await ctx.getOrchContext();
-      oc.scheduleStore?.remove(opts.id);
+      if (!oc.scheduleStore) throw new Error('agora orch schedule: agora.config `orch` export provides no scheduleStore');
+      oc.scheduleStore.remove(opts.id);
       console.log(`schedule '${opts.id}' removed`);
     });
 }
