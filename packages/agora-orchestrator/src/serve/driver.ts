@@ -1,6 +1,7 @@
 // packages/agora-orchestrator/src/serve/driver.ts
 import type { AgoraOrchestrator } from '../orchestrator.js';
 import type { SubmissionTransport, ControlChannel } from '../contracts/index.js';
+import type { CronScheduler } from '../scheduling/cron-scheduler.js';
 
 export interface ServeOptions {
   orchestrator: AgoraOrchestrator;
@@ -10,6 +11,8 @@ export interface ServeOptions {
   signal?: AbortSignal;
   now?: () => number;
   onError?: (err: unknown) => void;
+  /** When provided, due schedules are drained into the transport each tick (before orchestrator.tick). */
+  scheduler?: CronScheduler;
 }
 
 /** Resolves after `ms` milliseconds, or immediately if the signal is already aborted or fires. */
@@ -54,6 +57,14 @@ export async function serve(opts: ServeOptions): Promise<void> {
         try {
           if (ctl.kind === 'cancel') opts.orchestrator.cancelRun(ctl.target, ctl.actor);
           await opts.transport.ackControl?.(ctl.target);
+        } catch (err) { opts.onError?.(err); }
+      }
+      if (opts.scheduler) {
+        try {
+          for (const env of opts.scheduler.dueSubmissions()) {
+            try { await opts.transport.submit(env); }
+            catch (err) { opts.onError?.(err); }
+          }
         } catch (err) { opts.onError?.(err); }
       }
       await opts.orchestrator.tick(queue);
