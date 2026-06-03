@@ -98,6 +98,9 @@ it.
 | `cancel <target>` | `--actor <id>` | Requests cancellation of a run/item. Prints `cancel requested: <target>`. |
 | `audit <run-id>` | `--out <path>` | Produces the audit bundle. Writes to `--out` if given, else prints JSON. **Sets exit code `1` when the bundle's `report.intact` is false.** See [Export & verify an audit bundle](/agora/how-to/verify-audit-bundle/). |
 | `serve` | — | Starts the long-running orchestrator driver via the config's `runService`. Errors if the `orch` export provides no `runService`. Wires `SIGINT`/`SIGTERM` to an `AbortController` for graceful shutdown. |
+| `schedule add` | `--id <id>` (required), `--cron "<expr>"` (required), `--plan <plan.json>` (required), `--actor <id>` | Validates the cron expression up front (throws on invalid syntax), computes the first `nextDueAt`, and upserts the schedule. Re-running with the same `--id` is an idempotent update — the expression, template, and actor are replaced, and bookkeeping recomputed. Prints `schedule '<id>' next due <ISO>`. Errors if the `orch` export provides no `scheduleStore`. |
+| `schedule list` | — | Prints one tab-delimited line per schedule: `id\tcronExpr\tlast=<ISO or '-'>\tnext=<ISO>`. Errors if the `orch` export provides no `scheduleStore`. |
+| `schedule rm` | `--id <id>` (required) | Removes a schedule by id. No-op if the id is absent (re-runnable safe). Errors if the `orch` export provides no `scheduleStore`. |
 
-The actor for `submit` and `cancel` resolves as: the `--actor` flag, else
+The actor for `submit`, `cancel`, and `schedule add` resolves as: the `--actor` flag, else
 `$AGORA_ACTOR`, else `human:<os-username>`.

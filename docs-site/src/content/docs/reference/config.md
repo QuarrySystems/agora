@@ -39,11 +39,38 @@ interface OrchContext {
   storage?: { get(ref: string): Promise<Uint8Array> };
   verifySignature?: (root: Uint8Array, sig: Signature) => boolean;
   runService?: (signal: AbortSignal) => Promise<void>;  // pre-wired serve() for `agora orch serve`
+  scheduleStore?: ScheduleStore;  // config-owned; required for `agora orch schedule` verbs
 }
 ```
 
 `runService` is required only for `agora orch serve`; the client verbs use
 `transport` (plus `anchor`/`storage` for `status`/`watch`/`audit`).
+
+`scheduleStore` is required only for the `agora orch schedule add|list|rm` verbs;
+omitting it has no effect on any other verb. The default implementation is
+`SqliteScheduleStore` from `@quarry-systems/agora-orchestrator`, which persists
+schedules in a dedicated `schedules` table on the same SQLite database used by
+`SqliteRunStateStore`. Pass the same `dbPath` to both so they share one file:
+
+```javascript
+import {
+  SqliteRunStateStore,
+  SqliteScheduleStore,
+  serve,
+} from '@quarry-systems/agora-orchestrator';
+
+const dbPath = join(tmpdir(), 'my-run-state.db');
+const store = new SqliteRunStateStore(dbPath);
+const scheduleStore = new SqliteScheduleStore(dbPath);
+
+export const orch = {
+  transport,
+  runService: (signal) => serve({ orchestrator, transport, scheduler, signal }),
+  scheduleStore,
+};
+```
+
+Custom implementations can satisfy the `ScheduleStore` interface directly.
 
 ## Worked `agora.config.mjs`
 

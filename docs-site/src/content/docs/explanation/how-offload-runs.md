@@ -160,6 +160,44 @@ consumed attempt, has its locks released, and is requeued, so the run resumes
 rather than wedging. `serve` also does one reconcile-first tick before entering its
 loop.
 
+## Recurring submission (cron)
+
+`agora orch serve` + `agora orch submit` delivers *unattended* offload — you
+submit once, walk away, and the daemon fans it out. **Cron adds the missing
+axis: *recurring* offload, with no client present at fire time.**
+
+Cron is modelled as a **Run producer**, not a new `Trigger`. When a schedule is
+due, `serve` calls `SubmissionTransport.submit()` — the same method a human
+client uses — and the submitted Run flows through the unchanged `pollInbox →
+submitRun → ManualTrigger → tick` pipeline. No V1 code path is modified; the
+engine, audit log, and trigger contract are untouched.
+
+```
+client.submit()  ─┐
+                   ├─▶ inbox/ ─▶ pollInbox ─▶ submitRun ─▶ ManualTrigger ─▶ tick
+cron (serve)    ─┘
+```
+
+**Each fire** uses a deterministic run id `<scheduleId>@<slotISO>` (e.g.
+`nightly-audit@2026-06-04T02:00:00Z`). Because the id is stable per (schedule,
+slot), an accidental double-emit is silently absorbed by `submitRun`'s existing
+idempotency guard — no new dedup logic is required.
+
+**Catch-up after downtime.** If `serve` is stopped across multiple slots, on
+restart it fires **one coalesced catch-up run** for the most-recently missed
+slot, then resumes the normal cadence. Earlier missed slots are dropped, not
+replayed. The deterministic-id dedup means a crash-before-`markFired` restart
+also coalesces cleanly.
+
+Schedules persist in a `schedules` table on the same SQLite database `serve`
+already owns, so they survive restarts. The operator surface is
+`agora orch schedule add|list|rm`; these verbs are CLI-only (not MCP-reachable).
+
+For the full architecture, catch-up policy, and idempotency mechanics, see the
+[cron scheduling design spec](https://github.com/quarrysystems/agora/blob/main/docs/superpowers/specs/2026-06-02-agora-cron-trigger-design.md).
+For the how-to walkthrough, see
+[Schedule recurring runs](/agora/how-to/schedule-recurring-runs/).
+
 ## The patch escape: how results leave the sandbox
 
 The sandbox is the product — by default nothing leaves the container. So how do
