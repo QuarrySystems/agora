@@ -10,7 +10,7 @@ it("ScheduleStore is implementable and Schedule round-trips through it", () => {
     remove: (id) => { rows.delete(id); },
     list: () => [...rows.values()],
   };
-  const s: Schedule = { id: "nightly", cronExpr: "0 2 * * *", run: { id: "r", items: [] } as unknown as Schedule["run"], actor: "human:test", nextDueAt: "2026-06-03T02:00:00Z" };
+  const s: Schedule = { id: "nightly", cronExpr: "0 2 * * *", run: { id: "r", queue: "default", items: [] }, actor: "human:test", nextDueAt: "2026-06-03T02:00:00Z" };
   store.upsert(s);
   expect(store.list()).toEqual([s]);
 });
