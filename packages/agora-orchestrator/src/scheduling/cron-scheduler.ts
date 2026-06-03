@@ -1,5 +1,5 @@
 import parser from 'cron-parser';
-import type { Schedule, ScheduleStore, SubmissionEnvelope } from '../contracts/index.js';
+import type { ScheduleStore, SubmissionEnvelope } from '../contracts/index.js';
 
 /** Next scheduled slot strictly after `afterMs`, as an ISO-8601 string (UTC). */
 export function nextDueAfter(cronExpr: string, afterMs: number): string {
