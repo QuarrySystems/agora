@@ -11,6 +11,8 @@ flowchart TD
     task-serve-wiring["task-serve-wiring: serve loop scheduler block<br/>files: serve/driver.ts +1 more"]
     task-barrel-exports["task-barrel-exports: export scheduling symbols<br/>files: src/index.ts +1 more"]
     task-cli-schedule["task-cli-schedule: orch schedule CLI<br/>files: cmd-orch.ts +1 more"]
+    task-docs-site["task-docs-site: public docs site<br/>files: reference/cli.md +4 more"]
+    task-repo-docs["task-repo-docs: internal repo docs<br/>files: ROADMAP.md +1 more"]
 
     task-schedule-contracts --> task-cron-scheduler
     task-schedule-contracts --> task-sqlite-schedule-store
@@ -19,6 +21,8 @@ flowchart TD
     task-cron-scheduler --> task-barrel-exports
     task-sqlite-schedule-store --> task-barrel-exports
     task-barrel-exports --> task-cli-schedule
+    task-cli-schedule --> task-docs-site
+    task-cli-schedule --> task-repo-docs
 
     classDef done fill:#90ee90,stroke:#333
     classDef ready fill:#fffacd,stroke:#333
@@ -56,7 +60,25 @@ Decomposition notes:
   task touches any `mcp` surface and the CI privilege-allowlist check is
   unaffected.
 
-DAG status: 6 tasks · 0 done · 0 failed · 0 skipped · 6 pending
+Documentation tasks (`task-docs-site`, `task-repo-docs`) both depend on
+`task-cli-schedule` (the last behaviour task) so the docs describe the complete
+shipped surface, including the CLI verbs. They are `is_wiring_task: true`: a
+markdown edit has no unit test, so the H7 impl+failing-test requirement does not
+apply; verification is the docs-site build / grep checks named in each task.
+
+**Out of DAG — Knowledge-vault capture.** agora is its own git repo; the
+Knowledge vault is a *separate* repo, and vault pages are authored via the vault
+MCP tools under a frontmatter contract with agent-draft attribution — a
+`dag-implementer` (which works in the agora repo under TDD) cannot produce one
+cleanly. So recording the cron design as a vault `decision`/`synthesis` page is a
+post-merge step done with the vault tools, **not** a task here. Tracked so it is
+not forgotten.
+
+**Heads-up for `task-repo-docs`:** `ROADMAP.md` has uncommitted working-tree
+edits from the Tier-1 MinIO work at plan-authoring time. Commit or stash those
+before this task runs so the cron promotion lands as a clean, separable diff.
+
+DAG status: 8 tasks · 0 done · 0 failed · 0 skipped · 8 pending
 
 | id | depends_on | status |
 |---|---|---|
@@ -66,6 +88,8 @@ DAG status: 6 tasks · 0 done · 0 failed · 0 skipped · 6 pending
 | task-serve-wiring | task-cron-scheduler | · pending |
 | task-barrel-exports | task-schedule-contracts, task-cron-scheduler, task-sqlite-schedule-store | · pending |
 | task-cli-schedule | task-barrel-exports | · pending |
+| task-docs-site | task-cli-schedule | · pending |
+| task-repo-docs | task-cli-schedule | · pending |
 
 ## Tasks
 
@@ -524,3 +548,91 @@ it("schedule add upserts with a computed nextDueAt", async () => {
 - Existing `cmd-orch.test.ts` still passes (additions are purely additive).
 
 Test file: `packages/agora-cli/test/cmd-orch-schedule.test.ts`.
+
+## Task: public docs site
+
+```yaml
+id: task-docs-site
+depends_on: [task-cli-schedule]
+files:
+  - docs-site/src/content/docs/reference/cli.md
+  - docs-site/src/content/docs/reference/config.md
+  - docs-site/src/content/docs/how-to/schedule-recurring-runs.md
+  - docs-site/src/content/docs/explanation/how-offload-runs.md
+  - docs-site/src/content/docs/explanation/project-status-roadmap.md
+status: pending
+is_wiring_task: true
+```
+
+Document the cron feature across the published Diátaxis docs (Astro/Starlight
+site). One author keeps the cross-references between the four pages consistent.
+A documentation task, not code — verification is the docs-site build, not a unit
+test (hence `is_wiring_task: true`).
+
+Surfaces to update:
+- **`reference/cli.md`** — add `schedule add | list | rm` rows to the existing
+  `## agora orch` verb table (the table that currently documents `serve` at
+  ~line 100), including each verb's options and the "no `scheduleStore`
+  configured" error behaviour.
+- **`reference/config.md`** — document the config-owned `scheduleStore` on the
+  `orch` export (mirrors how `runService`/`transport` are documented).
+- **`how-to/schedule-recurring-runs.md`** (NEW) — task-oriented page: wire a
+  `scheduleStore`, `agora orch schedule add` a nightly run, verify it fires.
+  Frontmatter: `title` + `description` (match the existing how-to pages).
+- **`explanation/how-offload-runs.md`** — add a short "Recurring submission"
+  subsection: cron is a producer feeding the same inbox; catch-up coalescing;
+  deterministic per-slot runId (cite the design spec).
+- **`explanation/project-status-roadmap.md`** — move `cron` from *Next* to *Now*
+  (this page mirrors `ROADMAP.md`; keep them consistent — `ROADMAP.md` itself is
+  owned by `task-repo-docs`).
+
+## Acceptance criteria
+
+- `reference/cli.md` lists `schedule add`, `schedule list`, and `schedule rm`
+  with options and exit behaviour, under the `agora orch` section.
+- A new `how-to/schedule-recurring-runs.md` exists with valid Starlight
+  frontmatter (`title`, `description`) and walks add → fire → verify.
+- `explanation/how-offload-runs.md` describes cron as an inbox producer with
+  catch-up coalescing, linking the design spec.
+- `explanation/project-status-roadmap.md` shows `cron` under *Now*, not *Next*.
+- `pnpm --filter docs-site build` (Astro build) succeeds with no broken internal
+  links or frontmatter errors.
+
+Verification: `pnpm --filter docs-site build` (no unit test file — see
+`is_wiring_task`).
+
+## Task: internal repo docs
+
+```yaml
+id: task-repo-docs
+depends_on: [task-cli-schedule]
+files:
+  - ROADMAP.md
+  - CHANGELOG.md
+status: pending
+is_wiring_task: true
+```
+
+Update the repo-root internal docs to reflect the shipped feature. A
+documentation task — verification is content presence (grep), not a unit test
+(hence `is_wiring_task: true`). See the plan Context heads-up: commit/stash the
+pre-existing `ROADMAP.md` working-tree edits before this runs.
+
+Surfaces to update:
+- **`ROADMAP.md`** — move the `cron` trigger bullet from *Next — V1.1* to
+  *Now*, and remove the "first item to pull into V1.1" framing now that it has
+  shipped. Keep the rest of the *Next* list intact.
+- **`CHANGELOG.md`** — add a bullet under `## [Unreleased]` → `### Added`
+  describing `agora orch schedule add|list|rm` and recurring submission via the
+  cron scheduler (Keep a Changelog format, matching the existing 0.1.0 entries).
+
+## Acceptance criteria
+
+- `ROADMAP.md` lists `cron` under the *Now* section; the *Next — V1.1* section no
+  longer contains the cron bullet nor the "first item to pull" sentence.
+- `CHANGELOG.md` has an `### Added` bullet under `## [Unreleased]` naming the
+  `agora orch schedule` verbs and recurring/cron submission.
+- Both edits are additive and leave all other roadmap/changelog content unchanged.
+
+Verification: `grep -n "cron" ROADMAP.md CHANGELOG.md` shows the new entries in
+the expected sections (no unit test file — see `is_wiring_task`).
