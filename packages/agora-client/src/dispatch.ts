@@ -213,7 +213,7 @@ export async function fireWork(
   const envVars: Record<string, string> = {
     AGORA_DISPATCH_ID: dispatchId,
     AGORA_NAMESPACE: client.namespace,
-    AGORA_STORAGE_URI: (client.storage as unknown as { rootUri?: string }).rootUri ?? '',
+    AGORA_STORAGE_URI: hasRootUri(client.storage) ? client.storage.rootUri : '',
     AGORA_BUNDLE_REFS_JSON: JSON.stringify(bundleRefs),
     AGORA_INPUT_JSON: JSON.stringify(work.input ?? {}),
     AGORA_RUNTIME_ADAPTER: 'claude-code',
@@ -368,6 +368,17 @@ export async function dispatchWork(
 /** Type guard for the `SecretRef | InlineSecret` discriminated union. */
 function isSecretRef(v: SecretRef | InlineSecret): v is SecretRef {
   return 'ref' in v;
+}
+
+/** Narrowing guard: storage implementations may optionally expose a `rootUri`
+ *  string (used to populate `AGORA_STORAGE_URI`). */
+function hasRootUri(x: unknown): x is { rootUri: string } {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    'rootUri' in x &&
+    typeof (x as { rootUri: unknown }).rootUri === 'string'
+  );
 }
 
 /**
