@@ -69,6 +69,12 @@ shipped in #24).
   computes the policy for each item — but the result is currently **discarded**
   (`tick.ts`: `void effectTierPolicy(…)`, `// TODO(PR6)`). Nothing caches, snapshots,
   or gates on it yet. Acting on it is V1.1 (below).
+- **Cron scheduling** — `agora orch schedule add|list|rm` CLI verbs; schedules
+  persisted in a `schedules` SQLite table via a config-owned `scheduleStore`
+  (default `SqliteScheduleStore`). The cron scheduler acts as a Run *producer*
+  feeding the existing submission inbox — no new Trigger primitive. Catch-up
+  coalesces to one run after downtime; runIds are deterministic per slot. UTC /
+  minute granularity; single-`serve` assumption.
 
 ### Known gap in V1
 
@@ -88,10 +94,6 @@ shipped in #24).
 The V1.1 layer is a strict superset of V1. Nothing below requires changing what
 V1 ships.
 
-- **`cron` trigger** — recurring scheduling via the existing `Trigger` seam.
-  `serve` + manual `submit` already delivers *unattended* offload (submit once,
-  walk away); `cron` adds *recurring*. **This is the first item to pull into
-  V1.1.**
 - **Operationalize the `dev` pack** — the `dev.code-edit` / `dev.verify` shapes and
   the `PackRegistry` already exist in code (see "Now"), but the shapes are **not
   dispatchable yet**: pin the real worker-image digest (currently a `PLACEHOLDER`)
@@ -102,6 +104,20 @@ V1 ships.
   Deferred: validating the sentinel against each shape's `outputSchema`, and the
   richer `output` / `intents` / `signals` products (the types exist; nothing
   enforces or consumes them yet).
+- **Per-dispatch artifact I/O** — V1 carries files *into* a worker only via
+  register-once capability bundles (already binary-capable:
+  `files: Record<string, Uint8Array | string>`), and escapes results *out* only as
+  a workspace diff (`result_ref`, a unified patch). Two symmetric gaps remain for
+  *artifact-shaped* work — a worker that consumes or produces a binary deliverable
+  (a PDF, an image, a build output) rather than editing code: there is no
+  per-dispatch **input** blob materialized into the workspace, and no **binary
+  output** channel (the git-diff patch records binary changes as
+  `Binary files … differ`, dropping the bytes). V1.1 adds a content-addressed
+  artifact seam — per-dispatch inputs materialized into the workspace at a known
+  path, declared outputs captured and content-addressed on write — both folded into
+  the audit manifest, sitting **alongside** the existing code-edit patch (which is
+  correct as-is for the editing path). Additive via the existing storage +
+  overlay/capture machinery; pulled when an artifact-generation use case needs it.
 - **The autonomous-PR layer** — `Intent` / `IntentInterpreter`, the `dev.open-pr`
   interpreter, the auto-merge-test-only / human-approve policy, and the CLI
   `approve` verb. The `Intent` *type* exists; no interpreter ships yet. This is the

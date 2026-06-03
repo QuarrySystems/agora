@@ -24,6 +24,12 @@ The local-Docker acceptance path is proven live: safe fan-out under resource loc
 per-edit patch artifact (`result_ref`), and a verifiable **tamper-detecting**
 audit bundle.
 
+- **`cron` scheduling** — `agora orch schedule add|list|rm`; `serve` fires due
+  schedules through the existing submission inbox (same path as a manual submit).
+  Catch-up after downtime coalesces to ONE run for the most-recent missed slot.
+  Deterministic per-slot run id (`<scheduleId>@<slotISO>`) deduplicates
+  double-emits via `submitRun`'s existing idempotency guard. Schedules persist
+  in a `schedules` table on the run-state SQLite DB.
 - **`serve` driver** — long-running process; sole writer of the SQLite run-state,
   polls the submission inbox, runs the reconcile tick loop, exits cleanly on signal.
 - **Submission transport** — clients write a Run spec to a storage prefix; `serve`
@@ -83,9 +89,6 @@ interface is provided; you implement it).
 
 A strict superset of V1; nothing below changes what V1 ships.
 
-- **`cron` trigger** — recurring scheduling via the existing `Trigger` seam.
-  `serve` + manual `submit` already delivers *unattended* offload; `cron` adds
-  *recurring*. **First item to pull into V1.1.**
 - **Operationalize the `dev` pack** — the `dev.code-edit` / `dev.verify` shapes and
   the `PackRegistry` already exist in code (see "Now"), but aren't dispatchable yet:
   pin the real worker-image digest (currently a `PLACEHOLDER`) and enforce each

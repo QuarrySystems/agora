@@ -34,6 +34,7 @@
     "@quarry-systems/agora-client": "workspace:*",
     "@quarry-systems/agora-core": "workspace:*",
     "better-sqlite3": "^11.0.0",
+    "cron-parser": "^4",
     "zod": "^3"
   },
   "devDependencies": {
