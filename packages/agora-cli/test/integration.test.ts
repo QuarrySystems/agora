@@ -140,7 +140,7 @@ describe('agora-cli integration', () => {
     const fake = makeFakeClient();
     const program = buildAll(fake);
     const names = program.commands.map((c) => c.name()).sort();
-    expect(names).toEqual(['capabilities', 'deploy', 'dispatch', 'env', 'orch', 'subagent']);
+    expect(names).toEqual(['capabilities', 'deploy', 'dispatch', 'env', 'orch', 'subagent', 'verify']);
   });
 
   it('dispatch run forwards --subagent, --target, and parsed --input JSON to client.dispatch', async () => {
