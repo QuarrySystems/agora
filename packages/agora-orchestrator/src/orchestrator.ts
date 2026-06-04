@@ -1,4 +1,5 @@
 // packages/agora-orchestrator/src/orchestrator.ts
+import type { VerifyOutcome } from '@quarry-systems/agora-core';
 import type { AuditEntryRow, AnchoredRoot, AuditExport, Executor, ItemState, Run, RunStateStore, Trigger } from './contracts/index.js';
 import type { PackRegistry } from './packs/registry.js';
 import type { AuditLog } from './audit/audit-log.js';
@@ -29,7 +30,7 @@ export { PRIVILEGE } from './contracts/privilege.js';
 export interface StatusItem {
   id: string; runId: string; status: string; blockedBy: string[];
   resultRef?: string; manifestRef?: string;
-  verify?: { passed: boolean; report?: string; durationMs?: number };
+  verify?: VerifyOutcome;
 }
 
 const TERMINAL_STATUSES = new Set(['done', 'failed', 'skipped', 'cancelled']);

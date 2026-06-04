@@ -78,7 +78,8 @@ import { LifecycleEmitter } from './lifecycle.js';
 import { StructuredLogger } from './logger.js';
 import { captureBaseline, type WorkspaceBaseline } from './patch-capture.js';
 import { capturePatch, writeSentinel } from './output-sentinel.js';
-import { runVerify, type VerifyResult } from './verify.js';
+import { runVerify } from './verify.js';
+import type { VerifyOutcome } from '@quarry-systems/agora-core';
 
 /** Default ceiling for the self-verify command (install + build + test). */
 const DEFAULT_VERIFY_TIMEOUT_SECONDS = 600;
@@ -522,7 +523,7 @@ export async function runWorker(
     // pass/fail signal. Report-only: a failed (or absent) verify never changes
     // the dispatch outcome — it only adds evidence so the operator can read
     // green/red without re-running by hand.
-    let verify: VerifyResult | undefined;
+    let verify: VerifyOutcome | undefined;
     const verifyCommand = subagent.verify?.command;
     if (verifyCommand) {
       // Guard falsy/invalid timeouts: 0 or negative would SIGKILL instantly.

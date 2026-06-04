@@ -18,7 +18,7 @@ import {
 } from '@quarry-systems/agora-core';
 import type { StorageProvider } from '@quarry-systems/agora-core';
 import { computeWorkspacePatch, type WorkspaceBaseline } from './patch-capture.js';
-import type { VerifyResult } from './verify.js';
+import type { VerifyOutcome } from '@quarry-systems/agora-core';
 
 /** The on-disk and in-storage sentinel shape (D7 strict subset). */
 export interface OutputSentinel {
@@ -33,7 +33,7 @@ export interface OutputSentinel {
    * absence leaves the hash unchanged). Report-only: a failed verify does not
    * change the dispatch outcome, only this signal.
    */
-  verify?: VerifyResult;
+  verify?: VerifyOutcome;
 }
 
 /**
@@ -79,7 +79,7 @@ export async function writeSentinel(opts: {
   dispatchId: string;
   patchRef?: string;
   summary?: string;
-  verify?: VerifyResult;
+  verify?: VerifyOutcome;
 }): Promise<OutputSentinel> {
   const { workspaceDir, storage, namespace, dispatchId, patchRef, summary, verify } = opts;
 
@@ -115,7 +115,7 @@ export async function escapeWorkspace(opts: {
   dispatchId: string;
   baseline: WorkspaceBaseline;
   summary?: string;
-  verify?: VerifyResult;
+  verify?: VerifyOutcome;
 }): Promise<OutputSentinel> {
   const patchRef = await capturePatch(opts);
   return writeSentinel({

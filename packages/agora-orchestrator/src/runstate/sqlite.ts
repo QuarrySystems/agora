@@ -6,6 +6,7 @@
 // separate processes are unsupported and will corrupt run-state.
 //
 import Database from 'better-sqlite3';
+import type { VerifyOutcome } from '@quarry-systems/agora-core';
 import type { AnchoredRoot, AuditEntryRow, AuditStore, ItemState, Run, RunStateStore, RunStatus, TerminalStatus } from '../contracts/index.js';
 
 /** Shape of a row in the `items` table (column names are snake_case). */
@@ -198,7 +199,7 @@ export class SqliteRunStateStore implements RunStateStore, AuditStore {
     this.db.prepare('UPDATE items SET result_ref=? WHERE id=?').run(ref, itemId);
   }
 
-  setVerify(itemId: string, verify: { passed: boolean; report?: string; durationMs?: number }): void {
+  setVerify(itemId: string, verify: VerifyOutcome): void {
     this.db.prepare('UPDATE items SET verify=? WHERE id=?').run(JSON.stringify(verify), itemId);
   }
 

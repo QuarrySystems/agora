@@ -1,3 +1,4 @@
+import type { VerifyOutcome } from '@quarry-systems/agora-core';
 import type { WorkItem } from './types.js';
 
 /** Outcome of reconciling a fired dispatch. `null` from reconcile = still running. */
@@ -13,7 +14,7 @@ export interface ExecutionResult {
    * Report-only — it does not change `status`; it lets the operator read
    * green/red without re-running by hand.
    */
-  verify?: { passed: boolean; report?: string; durationMs?: number };
+  verify?: VerifyOutcome;
 }
 
 /** Generic, executor-agnostic context passed at fire time. NO AI/dispatch

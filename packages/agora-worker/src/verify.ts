@@ -15,14 +15,8 @@
 // output sentinel so the operator can read pass/fail without re-running by
 // hand. Gating on verify is a deliberate future pull, not part of v1.
 
+import type { VerifyOutcome } from "@quarry-systems/agora-core";
 import { runBoundedCommand } from "./bounded-command.js";
-
-export interface VerifyResult {
-  passed: boolean;
-  /** Combined stdout+stderr, truncated to the report limit. Omitted if empty. */
-  report?: string;
-  durationMs: number;
-}
 
 export interface RunVerifyOpts {
   workspaceDir: string;
@@ -42,10 +36,10 @@ function truncate(s: string, limit: number): string {
 
 /**
  * Run the verify command in the workspace, time-bounded, and report pass/fail.
- * Resolves (never rejects) with a {@link VerifyResult}. Report-only: a non-zero
+ * Resolves (never rejects) with a {@link VerifyOutcome}. Report-only: a non-zero
  * exit, a timeout, or a failure to start all map to `passed: false`.
  */
-export async function runVerify(opts: RunVerifyOpts): Promise<VerifyResult> {
+export async function runVerify(opts: RunVerifyOpts): Promise<VerifyOutcome> {
   const limit = opts.reportLimit ?? DEFAULT_REPORT_LIMIT;
   const result = await runBoundedCommand({
     command: opts.command,
