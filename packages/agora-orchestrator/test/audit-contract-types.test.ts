@@ -14,7 +14,7 @@ it('shapes a full AuditBundle (all five fields, refs only)', () => {
     manifests: [],
     auditLog: { entries: [], root: undefined },
     items: [{ id: 'a', status: 'done', resultRef: 'agora://artifacts/x' }],
-    report: { runId: 'r1', intact: true, anchorId: 'anc1', guarantee: 'detect', claim: 'tamper-detecting' },
+    report: { runId: 'r1', intact: true, anchorId: 'anc1', guarantee: 'detect', claim: 'tamper-detecting', checks: { chain: { ok: true }, root: { ok: true }, signature: { ok: 'n/a' as const }, anchor: { ok: true } } },
   };
   expect(bundle.report.claim).toBe('tamper-detecting');
   expect(bundle.manifests).toEqual([]);

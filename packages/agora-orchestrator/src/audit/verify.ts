@@ -12,42 +12,55 @@ export async function verify(
   },
 ): Promise<VerificationReport> {
   const g = deps.anchor.guarantee;
-  const base = { runId, anchorId: deps.anchor.id, guarantee: g };
-  const fail = (failure: VerificationReport['failure']): VerificationReport => ({
-    ...base,
-    intact: false,
-    claim: 'tamper-detecting',
-    failure,
-  });
-
   const entries = deps.store.getAuditEntries(runId);
 
-  // 1. Recompute the chain and verify each entry's hash and chain linkage
-  let prev = '';
+  // 1. Recompute the chain and verify each entry's hash and chain linkage (collect-all — no early return)
+  let prev = '', chainOk = true, badSeq: number | undefined;
   for (const e of entries) {
-    const h = chainHash(canonEntry(e), prev);
-    if (h !== e.entryHash || e.prevHash !== prev) return fail('chain');
+    if (chainHash(canonEntry(e), prev) !== e.entryHash || e.prevHash !== prev) {
+      chainOk = false;
+      badSeq = e.seq;
+      break;
+    }
     prev = e.entryHash;
   }
 
   // 2. Recompute the Merkle root from the entry hashes
   const recomputed = merkleRoot(leavesFromEntryHashes(entries.map((e) => e.entryHash)));
 
-  // 3. Fetch the anchored root — MUST consult the external anchor, NOT a local store copy
+  // 3. Fetch the anchored root — collect-all: fetch even if chain failed
   const anchored = (await deps.anchor.fetch({ epochId: runId }))[0];
-  if (!anchored) return fail('anchor-missing');
 
-  // 4. Compare recomputed root to the anchored root
-  if (Buffer.compare(Buffer.from(recomputed), Buffer.from(anchored.root)) !== 0)
-    return fail('root-mismatch');
+  const anchorOk = !!anchored;
+  const rootOk: boolean | 'n/a' = anchored
+    ? Buffer.compare(Buffer.from(recomputed), Buffer.from(anchored.root)) === 0
+    : 'n/a';
+  const sigOk: boolean | 'n/a' =
+    anchored?.signature && deps.verifySignature
+      ? deps.verifySignature(anchored.root, anchored.signature)
+      : 'n/a';
 
-  // 5. Verify the signature if present and a verifier was supplied
-  if (anchored.signature && deps.verifySignature && !deps.verifySignature(anchored.root, anchored.signature))
-    return fail('signature');
+  const checks = {
+    chain: { ok: chainOk, detail: chainOk ? undefined : `entry ${badSeq} hash ≠ recomputed` },
+    root: { ok: rootOk },
+    signature: { ok: sigOk },
+    anchor: { ok: anchorOk },
+  };
 
-  // 6. Determine the proven tier: tamper-evident only when guarantee >= external-immutable
+  const intact = chainOk && anchorOk && rootOk !== false && sigOk !== false;
+
+  const failure =
+    !chainOk ? 'chain' as const
+    : !anchorOk ? 'anchor-missing' as const
+    : rootOk === false ? 'root-mismatch' as const
+    : sigOk === false ? 'signature' as const
+    : undefined;
+
+  // Tamper-evident only when guarantee >= external-immutable AND intact
   const claim =
-    GUARANTEE_RANK[g] >= GUARANTEE_RANK['external-immutable'] ? 'tamper-evident' : 'tamper-detecting';
+    intact && GUARANTEE_RANK[g] >= GUARANTEE_RANK['external-immutable']
+      ? 'tamper-evident' as const
+      : 'tamper-detecting' as const;
 
-  return { ...base, intact: true, claim };
+  return { runId, anchorId: deps.anchor.id, guarantee: g, intact, claim, failure, checks };
 }

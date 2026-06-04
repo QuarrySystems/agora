@@ -30,10 +30,16 @@ export interface AuditEntry {
   manifestRef?: string; resultRef?: string; at: string; // ISO-8601
 }
 
+export interface CheckResult {
+  ok: boolean | 'n/a';   // 'n/a' = prerequisite genuinely absent (e.g. anchor missing) — never a false ✓
+  detail?: string;       // e.g. "entry 7 hash ≠ recomputed"
+}
+
 export interface VerificationReport {
   runId: string; intact: boolean; anchorId: string; guarantee: Guarantee;
   claim: 'tamper-evident' | 'tamper-detecting';
-  failure?: 'chain' | 'anchor-missing' | 'root-mismatch' | 'signature';
+  failure?: 'chain' | 'anchor-missing' | 'root-mismatch' | 'signature';  // first failing check (kept for back-compat)
+  checks: { chain: CheckResult; root: CheckResult; signature: CheckResult; anchor: CheckResult };
 }
 
 export interface AuditEntryRow extends AuditEntry { entryHash: string; prevHash: string; }
