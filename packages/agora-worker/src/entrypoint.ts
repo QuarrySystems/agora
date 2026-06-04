@@ -78,6 +78,10 @@ import { LifecycleEmitter } from './lifecycle.js';
 import { StructuredLogger } from './logger.js';
 import { captureBaseline, type WorkspaceBaseline } from './patch-capture.js';
 import { escapeWorkspace } from './output-sentinel.js';
+import { runVerify, type VerifyResult } from './verify.js';
+
+/** Default ceiling for the self-verify command (install + build + test). */
+const DEFAULT_VERIFY_TIMEOUT_SECONDS = 600;
 
 /**
  * Injection seam for tests. Every field is optional; production callers
@@ -421,6 +425,7 @@ export async function runWorker(
     systemPrompt?: string;
     promptTemplate?: string;
     model?: string;
+    verify?: { command?: string; timeout?: number };
   };
   let runtimeExit;
   const runtimeStartedAt = Date.now();
@@ -496,6 +501,28 @@ export async function runWorker(
 
   // Step 14: terminal lifecycle event + exit code.
   if (runtimeExit.exitCode === 0) {
+    // Step 13b (Gap A): self-verify. If the subagent declares a verify
+    // command, run it in the workspace over the agent's edit and seal the
+    // pass/fail signal into the sentinel. Report-only: a failed (or absent)
+    // verify never changes the dispatch outcome — it only adds evidence so
+    // the operator can read green/red without re-running by hand.
+    let verify: VerifyResult | undefined;
+    const verifyCommand = subagent.verify?.command;
+    if (verifyCommand) {
+      verify = await runVerify({
+        workspaceDir,
+        command: verifyCommand,
+        env: mergedEnv,
+        timeoutSeconds: subagent.verify?.timeout ?? DEFAULT_VERIFY_TIMEOUT_SECONDS,
+      });
+      logger.log({
+        kind: 'verify.ran',
+        dispatchId: cfg.dispatchId,
+        passed: verify.passed,
+        durationMs: verify.durationMs,
+      });
+    }
+
     // Escape: best-effort patch capture + sentinel upload. A failure here
     // logs escape.failed but must NOT change the exit code or terminal event.
     try {
@@ -505,6 +532,7 @@ export async function runWorker(
         namespace: cfg.namespace,
         dispatchId: cfg.dispatchId,
         baseline,
+        verify,
       });
     } catch (err) {
       logger.log({

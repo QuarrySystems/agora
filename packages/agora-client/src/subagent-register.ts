@@ -32,6 +32,14 @@ export interface RegisterSubagentOpts {
   promptTemplate?: string;
   model?: string;
   capabilities?: Array<string | CapabilityRef>;
+  /**
+   * Optional self-verify command (Gap A). When set, the worker runs this
+   * (language-agnostic) shell command over its edit and seals pass/fail into
+   * the output sentinel. Carried verbatim into the stored subagent def so the
+   * worker can read it; omitted entirely when absent (hash-stable for
+   * subagents that don't use it).
+   */
+  verify?: { command: string; timeout?: number };
 }
 
 /**
@@ -58,13 +66,16 @@ export async function registerSubagent(
   // Canonical definition for hashing: sort capability hashes so set-ordering
   // doesn't perturb the resulting subagent identity.
   const sortedCapHashes = resolvedCaps.map((c) => c.contentHash).sort();
-  const def = {
+  const def: Record<string, unknown> = {
     name: opts.name,
     systemPrompt: opts.systemPrompt ?? null,
     promptTemplate: opts.promptTemplate ?? null,
     model: opts.model ?? null,
     capabilities: sortedCapHashes,
   };
+  // Additive + hash-stable: only present when set, so existing subagents
+  // (no verify) keep their exact content hash.
+  if (opts.verify) def.verify = opts.verify;
   const contentHash = computeContentHash(def);
 
   const baseUri = buildAgoraUri({

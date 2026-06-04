@@ -18,12 +18,22 @@ import {
 } from '@quarry-systems/agora-core';
 import type { StorageProvider } from '@quarry-systems/agora-core';
 import { computeWorkspacePatch, type WorkspaceBaseline } from './patch-capture.js';
+import type { VerifyResult } from './verify.js';
 
 /** The on-disk and in-storage sentinel shape (D7 strict subset). */
 export interface OutputSentinel {
   schemaVersion: 1;
   patchRef?: string;
   summary?: string;
+  /**
+   * Self-verify result (Gap A): the worker's own run of the project's
+   * (language-agnostic) verify command over its edit — `dotnet test`,
+   * `cargo test`, `pytest`, `tsc && vitest`, etc. Optional + additive — the
+   * versioned sentinel stays backward-compatible (old readers ignore it;
+   * absence leaves the hash unchanged). Report-only: a failed verify does not
+   * change the dispatch outcome, only this signal.
+   */
+  verify?: VerifyResult;
 }
 
 /**
@@ -42,8 +52,9 @@ export async function escapeWorkspace(opts: {
   dispatchId: string;
   baseline: WorkspaceBaseline;
   summary?: string;
+  verify?: VerifyResult;
 }): Promise<OutputSentinel> {
-  const { workspaceDir, storage, namespace, dispatchId, baseline, summary } = opts;
+  const { workspaceDir, storage, namespace, dispatchId, baseline, summary, verify } = opts;
 
   // Step 1: compute the patch and upload it as a content-addressed artifact.
   let patchRef: string | undefined;
@@ -63,6 +74,7 @@ export async function escapeWorkspace(opts: {
   const sentinel: OutputSentinel = { schemaVersion: 1 };
   if (patchRef !== undefined) sentinel.patchRef = patchRef;
   if (summary !== undefined) sentinel.summary = summary;
+  if (verify !== undefined) sentinel.verify = verify;
 
   const sentinelBytes = new TextEncoder().encode(JSON.stringify(sentinel));
 

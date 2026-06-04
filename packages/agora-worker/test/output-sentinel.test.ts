@@ -198,6 +198,52 @@ describe('escapeWorkspace', () => {
     expect(parsed.summary).toBe('task finished successfully');
   });
 
+  it('includes verify in the sentinel when provided', async () => {
+    await initGitRepo(dir);
+    const baseline: WorkspaceBaseline = await captureBaseline(dir);
+
+    const sentinel = await escapeWorkspace({
+      workspaceDir: dir,
+      storage,
+      namespace: 'ns',
+      dispatchId: 'd6',
+      baseline,
+      verify: { passed: true, report: 'tsc --noEmit ok', durationMs: 42 },
+    });
+
+    expect(sentinel.verify).toEqual({
+      passed: true,
+      report: 'tsc --noEmit ok',
+      durationMs: 42,
+    });
+    const dispatchUri = buildDispatchRecordUri('ns', 'd6', 'output.json');
+    const parsed = JSON.parse(
+      new TextDecoder().decode(await storage.get(dispatchUri)),
+    );
+    expect(parsed.verify.passed).toBe(true);
+    expect(parsed.verify.report).toBe('tsc --noEmit ok');
+  });
+
+  it('omits verify from the sentinel when not provided (backward-compat)', async () => {
+    await initGitRepo(dir);
+    const baseline: WorkspaceBaseline = await captureBaseline(dir);
+
+    const sentinel = await escapeWorkspace({
+      workspaceDir: dir,
+      storage,
+      namespace: 'ns',
+      dispatchId: 'd7',
+      baseline,
+    });
+
+    expect(sentinel.verify).toBeUndefined();
+    const dispatchUri = buildDispatchRecordUri('ns', 'd7', 'output.json');
+    const parsed = JSON.parse(
+      new TextDecoder().decode(await storage.get(dispatchUri)),
+    );
+    expect('verify' in parsed).toBe(false);
+  });
+
   it('works with unavailable baseline (no git) — omits patch, still writes sentinel', async () => {
     // No git init — baseline will be unavailable
     const baseline: WorkspaceBaseline = { unavailable: true };

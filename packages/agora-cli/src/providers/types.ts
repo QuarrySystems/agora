@@ -20,6 +20,12 @@ export interface SubagentDef {
   promptTemplate?: string;
   model?: string;
   capabilities?: string[];
+  /**
+   * Optional self-verify command (Gap A) — a language-agnostic shell command
+   * (`dotnet test`, `cargo test`, `pytest`, `tsc && vitest`, …) the worker
+   * runs over its edit, sealing pass/fail into the output sentinel.
+   */
+  verify?: { command: string; timeout?: number };
 }
 
 export interface CapabilityBundle {

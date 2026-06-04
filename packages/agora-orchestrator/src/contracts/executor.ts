@@ -6,6 +6,14 @@ export interface ExecutionResult {
   output?: unknown;
   /** Opaque ref to the escaped artifact (e.g. patch URI). Surfaced as result_ref. */
   resultRef?: string;
+  /**
+   * Self-verify signal (Gap A) read from the worker's output sentinel: the
+   * worker's own run of the project's (language-agnostic) verify command over
+   * its edit — `dotnet test`, `cargo test`, `pytest`, `tsc && vitest`, etc.
+   * Report-only — it does not change `status`; it lets the operator read
+   * green/red without re-running by hand.
+   */
+  verify?: { passed: boolean; report?: string; durationMs?: number };
 }
 
 /** Generic, executor-agnostic context passed at fire time. NO AI/dispatch
