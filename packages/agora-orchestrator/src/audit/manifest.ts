@@ -10,6 +10,7 @@ export interface BuildManifestInput {
   actor: string;
   firedAt: string;
   submittedAt?: string;
+  inputRefs?: Record<string, string>;
 }
 
 /** Build a manifest and compute its self-hash. The hash is taken over the
@@ -34,6 +35,7 @@ export function buildManifest(input: BuildManifestInput): {
     actor: input.actor,
     submittedAt: input.submittedAt,
     firedAt: input.firedAt,
+    inputRefs: input.inputRefs,
   };
   // computeContentHash canonicalizes objects internally (sorted keys, drops
   // undefined — so an absent submittedAt does not perturb the hash).
