@@ -22,6 +22,7 @@ import {
   type CapabilityRef,
   type SubagentRef,
   type SubagentHandle,
+  type VerifyConfig,
 } from '@quarry-systems/agora-core';
 import type { AgoraClient } from './client.js';
 
@@ -39,7 +40,7 @@ export interface RegisterSubagentOpts {
    * worker can read it; omitted entirely when absent (hash-stable for
    * subagents that don't use it).
    */
-  verify?: { command: string; timeout?: number };
+  verify?: VerifyConfig;
 }
 
 /**

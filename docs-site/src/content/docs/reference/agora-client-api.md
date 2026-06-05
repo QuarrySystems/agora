@@ -77,7 +77,7 @@ interface RegisterSubagentOpts {
   promptTemplate?: string;
   model?: string;
   capabilities?: Array<string | CapabilityRef>;  // bare names or full refs
-  verify?: { command: string; timeout?: number };  // self-verify command (Gap A)
+  verify?: VerifyConfig;  // self-verify config (Gap A): { command: string; timeout?: number }
 }
 ```
 

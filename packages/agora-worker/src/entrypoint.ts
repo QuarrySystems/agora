@@ -79,7 +79,7 @@ import { StructuredLogger } from './logger.js';
 import { captureBaseline, type WorkspaceBaseline } from './patch-capture.js';
 import { capturePatch, writeSentinel } from './output-sentinel.js';
 import { runVerify } from './verify.js';
-import type { VerifyOutcome } from '@quarry-systems/agora-core';
+import type { VerifyOutcome, VerifyConfig } from '@quarry-systems/agora-core';
 
 /** Default ceiling for the self-verify command (install + build + test). */
 const DEFAULT_VERIFY_TIMEOUT_SECONDS = 600;
@@ -426,7 +426,7 @@ export async function runWorker(
     systemPrompt?: string;
     promptTemplate?: string;
     model?: string;
-    verify?: { command?: string; timeout?: number };
+    verify?: VerifyConfig;
   };
   let runtimeExit;
   const runtimeStartedAt = Date.now();

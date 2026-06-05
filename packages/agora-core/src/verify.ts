@@ -15,3 +15,13 @@ export interface VerifyOutcome {
   report?: string;
   durationMs?: number;
 }
+
+/**
+ * Declared self-verify config on a subagent — the input counterpart to
+ * {@link VerifyOutcome}. The language-agnostic shell command the worker runs
+ * over the agent's edit before sealing, with an optional timeout in seconds.
+ */
+export interface VerifyConfig {
+  command: string;
+  timeout?: number;
+}
