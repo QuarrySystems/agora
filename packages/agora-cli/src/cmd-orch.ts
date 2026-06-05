@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { readFile, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { OperationsApi, nextDueAfter } from '@quarry-systems/agora-orchestrator';
+import { OperationsApi, nextDueAfter, validateRun, normalizeRun } from '@quarry-systems/agora-orchestrator';
 import type { SubmissionTransport, ControlChannel, AuditAnchor, Signature, ScheduleStore, Schedule } from '@quarry-systems/agora-orchestrator';
 import type { CliContext } from './index.js';
 
@@ -25,6 +25,17 @@ export function attachOrchCmd(program: Command, ctx: CliContext): void {
     const run = JSON.parse(await readFile(file, 'utf8'));
     if (opts.queue) run.queue = opts.queue;
     console.log(await new OperationsApi(oc).submit(run, resolveActor(opts.actor)));
+  });
+
+  o.command('validate <plan.json>').description('Statically validate a run plan (structure, edges, cycles)').action(async (file) => {
+    const run = JSON.parse(await readFile(file, 'utf8'));
+    const errors = validateRun(normalizeRun(run));
+    if (errors.length) {
+      for (const e of errors) console.error(e);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify({ valid: true, items: run.items.length }));
   });
 
   o.command('status [run-id]').action(async (runId) => {

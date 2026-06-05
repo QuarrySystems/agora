@@ -83,7 +83,7 @@ async function captureLog(fn: () => Promise<void>): Promise<string[]> {
 // ---------------------------------------------------------------------------
 
 describe('attachOrchCmd', () => {
-  it('registers serve|submit|status|watch|cancel|audit|schedule subcommands + orchestrator alias', () => {
+  it('registers serve|submit|status|watch|cancel|audit|schedule|validate subcommands + orchestrator alias', () => {
     const program = new Command();
     const ctx = makeCtx(makeOrchContext());
     attachOrchCmd(program, ctx);
@@ -92,7 +92,7 @@ describe('attachOrchCmd', () => {
     expect(orchCmd).toBeDefined();
     expect(orchCmd.aliases()).toContain('orchestrator');
     const names = orchCmd.commands.map((c) => c.name()).sort();
-    expect(names).toEqual(['audit', 'cancel', 'schedule', 'serve', 'status', 'submit', 'watch']);
+    expect(names).toEqual(['audit', 'cancel', 'schedule', 'serve', 'status', 'submit', 'validate', 'watch']);
   });
 
   describe('submit', () => {
@@ -500,6 +500,98 @@ describe('attachOrchCmd', () => {
       await expect(
         program.parseAsync(['orch', 'serve'], { from: 'user' }),
       ).rejects.toThrow('no runService');
+    });
+  });
+
+  describe('validate', () => {
+    let tmpDir: string;
+
+    beforeEach(async () => {
+      tmpDir = await mkdtemp(join(tmpdir(), 'agora-cli-validate-'));
+    });
+
+    afterEach(async () => {
+      await rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it('prints valid:true for a well-formed plan and makes no transport calls', async () => {
+      const transport = makeFakeTransport();
+      const ctx = makeCtx(makeOrchContext({ transport }));
+      const planPath = join(tmpDir, 'plan.json');
+      await writeFile(planPath, JSON.stringify({
+        id: 'r',
+        queue: 'default',
+        items: [{ id: 'a', executor: 'noop', inputs: {}, depends_on: [], resourceLocks: [] }],
+      }));
+      const program = new Command();
+      attachOrchCmd(program, ctx);
+      const logs = await captureLog(() => program.parseAsync(['orch', 'validate', planPath], { from: 'user' }));
+      expect(JSON.parse(logs[0]).valid).toBe(true);
+      expect(JSON.parse(logs[0]).items).toBe(1);
+      expect(transport._submissions).toHaveLength(0);
+    });
+
+    it('reports each error on stderr and sets exitCode = 1 for an invalid plan (unknown dep)', async () => {
+      const transport = makeFakeTransport();
+      const ctx = makeCtx(makeOrchContext({ transport }));
+      const planPath = join(tmpDir, 'plan-invalid.json');
+      await writeFile(planPath, JSON.stringify({
+        id: 'r2',
+        queue: 'default',
+        items: [{ id: 'a', executor: 'noop', inputs: {}, depends_on: ['missing-item'], resourceLocks: [] }],
+      }));
+      const program = new Command();
+      attachOrchCmd(program, ctx);
+
+      const stderrLines: string[] = [];
+      const origError = console.error;
+      console.error = vi.fn((...args: unknown[]) => stderrLines.push(args.map(String).join(' ')));
+
+      const prevExitCode = process.exitCode;
+      process.exitCode = undefined;
+      try {
+        await program.parseAsync(['orch', 'validate', planPath], { from: 'user' });
+        expect(process.exitCode).toBe(1);
+        expect(stderrLines.length).toBeGreaterThan(0);
+        expect(stderrLines[0]).toContain('missing-item');
+        expect(transport._submissions).toHaveLength(0);
+      } finally {
+        console.error = origError;
+        process.exitCode = prevExitCode;
+      }
+    });
+
+    it('reports a cycle error on stderr and sets exitCode = 1', async () => {
+      const transport = makeFakeTransport();
+      const ctx = makeCtx(makeOrchContext({ transport }));
+      const planPath = join(tmpDir, 'plan-cycle.json');
+      await writeFile(planPath, JSON.stringify({
+        id: 'r3',
+        queue: 'default',
+        items: [
+          { id: 'a', executor: 'noop', inputs: {}, depends_on: ['b'], resourceLocks: [] },
+          { id: 'b', executor: 'noop', inputs: {}, depends_on: ['a'], resourceLocks: [] },
+        ],
+      }));
+      const program = new Command();
+      attachOrchCmd(program, ctx);
+
+      const stderrLines: string[] = [];
+      const origError = console.error;
+      console.error = vi.fn((...args: unknown[]) => stderrLines.push(args.map(String).join(' ')));
+
+      const prevExitCode = process.exitCode;
+      process.exitCode = undefined;
+      try {
+        await program.parseAsync(['orch', 'validate', planPath], { from: 'user' });
+        expect(process.exitCode).toBe(1);
+        expect(stderrLines.length).toBeGreaterThan(0);
+        expect(stderrLines.some((l) => l.includes('cycle'))).toBe(true);
+        expect(transport._submissions).toHaveLength(0);
+      } finally {
+        console.error = origError;
+        process.exitCode = prevExitCode;
+      }
     });
   });
 });
