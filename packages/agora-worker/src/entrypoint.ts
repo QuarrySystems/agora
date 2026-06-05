@@ -285,6 +285,19 @@ export async function runWorker(
     // no separate code path (spec §5 step 6).
     const overlayBundles = [...capabilityBundles];
     if (bundles.inputs.length > 0) {
+      // Guard against path traversal in input keys before touching the filesystem.
+      // Reject absolute paths, backslash-containing paths, empty segments, and
+      // any segment that is exactly '..' so 'inputs/<key>' cannot escape the
+      // workspace. Failure routes through the established integrity-failed path.
+      for (const i of bundles.inputs) {
+        if (
+          i.key.startsWith('/') ||
+          i.key.includes('\\') ||
+          i.key.split('/').some((seg) => seg === '..' || seg === '')
+        ) {
+          return failWith('integrity-failed', `input key contains path traversal: ${i.key}`);
+        }
+      }
       overlayBundles.push({
         name: 'inputs',
         files: Object.fromEntries(
