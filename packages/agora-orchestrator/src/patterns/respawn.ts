@@ -14,14 +14,13 @@ export function parseAttempt(id: string): { base: string; attempt: number } {
  * (items that depend on it, directly or transitively) whose status is 'skipped'.
  *
  * S maps:
- *   subject  -> fixId
  *   gate.id  -> gateCopyId
  *   each skipped descendant d -> `${parseAttempt(d).base}~${next}`
+ * (the caller adds subject -> fixId after this returns — the subject is never in the lineage)
  */
 function buildLineage(args: {
   gate: ItemState;
   runItems: ItemState[];
-  fixId: string;
   gateCopyId: string;
   next: number;
 }): {
@@ -29,7 +28,7 @@ function buildLineage(args: {
   skippedDescendants: ItemState[];
   hasCancelled: boolean;
 } {
-  const { gate, runItems, fixId, gateCopyId, next } = args;
+  const { gate, runItems, gateCopyId, next } = args;
 
   // Build lookup by id
   const byId = new Map<string, ItemState>();
@@ -165,7 +164,6 @@ export function respawnLineage(args: {
   const { S, skippedDescendants, hasCancelled } = buildLineage({
     gate,
     runItems,
-    fixId,
     gateCopyId,
     next,
   });
