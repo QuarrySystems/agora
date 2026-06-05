@@ -623,6 +623,154 @@ describe('DispatchExecutor', () => {
     expect(res?.resultRef).toBeUndefined();
   });
 
+  it('reconcile of a done dispatch surfaces sentinel outputs as outputRefs', async () => {
+    const { compute, resolveExit } = makeDeferredCompute();
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: compute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
+
+    const { dispatchHash } = await executor.fire(baseItem);
+
+    const sentinelUri = buildDispatchRecordUri('ns', dispatchHash, 'output.json');
+    await storage.put(sentinelUri, new TextEncoder().encode(JSON.stringify({
+      schemaVersion: 1,
+      outputs: [{ path: 'report.txt', ref: 'agora://ns/artifact/d/sha256:' + 'a'.repeat(64) }],
+    })));
+
+    resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
+    await new Promise((r) => setImmediate(r));
+
+    const res = await executor.reconcile(dispatchHash);
+    expect(res?.status).toBe('done');
+    expect(res?.outputRefs).toEqual({ 'report.txt': 'agora://ns/artifact/d/sha256:' + 'a'.repeat(64) });
+  });
+
+  it('reconcile sanitises outputs from the sentinel: drops malformed entries', async () => {
+    const { compute, resolveExit } = makeDeferredCompute();
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: compute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
+
+    const { dispatchHash } = await executor.fire(baseItem);
+
+    const sentinelUri = buildDispatchRecordUri('ns', dispatchHash, 'output.json');
+    const validRef = 'agora://ns/artifact/d/sha256:' + 'b'.repeat(64);
+    await storage.put(sentinelUri, new TextEncoder().encode(JSON.stringify({
+      schemaVersion: 1,
+      outputs: [
+        { path: 7, ref: validRef },       // path not a string → drop
+        'junk',                            // not an object → drop
+        { path: 'ok.txt', ref: validRef }, // valid → keep
+      ],
+    })));
+
+    resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
+    await new Promise((r) => setImmediate(r));
+
+    const res = await executor.reconcile(dispatchHash);
+    expect(res?.outputRefs).toEqual({ 'ok.txt': validRef });
+  });
+
+  it('reconcile with all-malformed outputs yields no outputRefs field', async () => {
+    const { compute, resolveExit } = makeDeferredCompute();
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: compute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
+
+    const { dispatchHash } = await executor.fire(baseItem);
+
+    const sentinelUri = buildDispatchRecordUri('ns', dispatchHash, 'output.json');
+    await storage.put(sentinelUri, new TextEncoder().encode(JSON.stringify({
+      schemaVersion: 1,
+      outputs: [{ path: 99, ref: 'agora://ns/artifact/d/sha256:cc' }, 'bad'],
+    })));
+
+    resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
+    await new Promise((r) => setImmediate(r));
+
+    const res = await executor.reconcile(dispatchHash);
+    expect(res?.status).toBe('done');
+    expect(res?.outputRefs).toBeUndefined();
+  });
+
+  it('reconcile with absent outputs field yields no outputRefs field', async () => {
+    const { compute, resolveExit } = makeDeferredCompute();
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: compute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
+
+    const { dispatchHash } = await executor.fire(baseItem);
+
+    const sentinelUri = buildDispatchRecordUri('ns', dispatchHash, 'output.json');
+    await storage.put(sentinelUri, new TextEncoder().encode(JSON.stringify({ schemaVersion: 1 })));
+
+    resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
+    await new Promise((r) => setImmediate(r));
+
+    const res = await executor.reconcile(dispatchHash);
+    expect(res?.status).toBe('done');
+    expect(res?.outputRefs).toBeUndefined();
+  });
+
+  it('reconcile truncates outputs beyond MAX_SENTINEL_OUTPUTS (256)', async () => {
+    const { compute, resolveExit } = makeDeferredCompute();
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: compute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
+
+    const { dispatchHash } = await executor.fire(baseItem);
+
+    // Build 300 valid entries
+    const outputs = Array.from({ length: 300 }, (_, i) => ({
+      path: `file-${i}.txt`,
+      ref: `agora://ns/artifact/d/sha256:${'c'.repeat(64)}`,
+    }));
+    const sentinelUri = buildDispatchRecordUri('ns', dispatchHash, 'output.json');
+    await storage.put(sentinelUri, new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, outputs })));
+
+    resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
+    await new Promise((r) => setImmediate(r));
+
+    const res = await executor.reconcile(dispatchHash);
+    expect(res?.outputRefs).toBeDefined();
+    expect(Object.keys(res!.outputRefs!).length).toBe(256);
+  });
+
   it('reconcile of a done dispatch with missing patchRef in sentinel yields resultRef undefined', async () => {
     const { compute, resolveExit } = makeDeferredCompute();
     const storage = makeMemoryStorage();
