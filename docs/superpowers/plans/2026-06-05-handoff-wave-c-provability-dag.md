@@ -5,12 +5,12 @@ created: 2026-06-05
 
 ```mermaid
 flowchart TD
-    task-manifest-inputrefs["task-manifest-inputrefs: seal inputRefs into the dispatch manifest<br/>files: packages/agora-orchestrator/src/contracts/manifest.ts +4 more"]
-    task-audit-contracts["task-audit-contracts: audit evidence contracts for handoff<br/>files: packages/agora-orchestrator/src/contracts/audit.ts +4 more"]
-    task-handoff-check["task-handoff-check: provenance-closure handoff check in verifyBundle<br/>files: packages/agora-orchestrator/src/audit/verify-bundle.ts +1 more"]
-    task-render-handoff["task-render-handoff: render handoff check row<br/>files: packages/agora-orchestrator/src/audit/render.ts +1 more"]
-    task-handoff-integration["task-handoff-integration: handoff provability integration test<br/>files: packages/agora-orchestrator/test/handoff-dag.int.test.ts"]
-    task-demo-example["task-demo-example: handoff-dag example<br/>files: examples/handoff-dag/agora.config.mjs +6 more"]
+    task-manifest-inputrefs["task-manifest-inputrefs: seal inputRefs into the dispatch manifest<br/>files: packages/agora-orchestrator/src/contracts/manifest.ts +4 more"]:::done
+    task-audit-contracts["task-audit-contracts: audit evidence contracts for handoff<br/>files: packages/agora-orchestrator/src/contracts/audit.ts +4 more"]:::done
+    task-handoff-check["task-handoff-check: provenance-closure handoff check in verifyBundle<br/>files: packages/agora-orchestrator/src/audit/verify-bundle.ts +1 more"]:::done
+    task-render-handoff["task-render-handoff: render handoff check row<br/>files: packages/agora-orchestrator/src/audit/render.ts +1 more"]:::done
+    task-handoff-integration["task-handoff-integration: handoff provability integration test<br/>files: packages/agora-orchestrator/test/handoff-dag.int.test.ts"]:::done
+    task-demo-example["task-demo-example: handoff-dag example<br/>files: examples/handoff-dag/agora.config.mjs +6 more"]:::done
 
     task-manifest-inputrefs --> task-handoff-check
     task-audit-contracts --> task-handoff-check
@@ -92,7 +92,7 @@ files:
   - packages/agora-orchestrator/src/executors/dispatch.ts
   - packages/agora-orchestrator/test/audit/manifest.test.ts
   - packages/agora-orchestrator/test/executors/dispatch.test.ts
-status: pending
+status: done
 ```
 
 The consumer side of the handoff lands in the sealed evidence at fire time (spec §7, pinned contract #1).
@@ -158,7 +158,7 @@ files:
   - packages/agora-orchestrator/src/audit/verify.ts
   - packages/agora-orchestrator/test/orchestrator-audit-export.test.ts
   - packages/agora-orchestrator/test/audit/verify.test.ts
-status: pending
+status: done
 ```
 
 The audit-evidence record surface (pinned contracts #2/#3 types): `AuditItemOutcome` carries the
@@ -228,7 +228,7 @@ depends_on: [task-manifest-inputrefs, task-audit-contracts]
 files:
   - packages/agora-orchestrator/src/audit/verify-bundle.ts
   - packages/agora-orchestrator/test/audit/verify-bundle.test.ts
-status: pending
+status: done
 ```
 
 The GTM check (spec §7, pinned contracts #3/#4): bare `verify()` reports `handoff: { ok: 'n/a' }`
@@ -321,7 +321,7 @@ depends_on: [task-audit-contracts]
 files:
   - packages/agora-orchestrator/src/audit/render.ts
   - packages/agora-orchestrator/test/audit/render.test.ts
-status: pending
+status: done
 ```
 
 `agora verify`'s human-readable report gains the fifth check row (spec §7), after `anchor`, in the
@@ -375,7 +375,7 @@ id: task-handoff-integration
 depends_on: [task-manifest-inputrefs, task-audit-contracts, task-handoff-check]
 files:
   - packages/agora-orchestrator/test/handoff-dag.int.test.ts
-status: pending
+status: done
 ```
 
 The end-to-end proof (spec §8), in the style of `test/audit/acceptance.int.test.ts` +
@@ -461,7 +461,7 @@ files:
   - examples/handoff-dag/README.md
   - examples/handoff-dag/package.json
   - CHANGELOG.md
-status: pending
+status: done
 is_wiring_task: true
 ```
 
