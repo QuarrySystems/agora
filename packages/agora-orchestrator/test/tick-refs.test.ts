@@ -72,6 +72,50 @@ describe('tick refs — FireContext forwarding', () => {
     expect(item.manifestRef).toBe('mf');
   });
 
+  it('does NOT persist outputRefs on a failed reconcile even if the result carries outputRefs', async () => {
+    const store = new SqliteRunStateStore();
+    store.ensureQueue('default', 1);
+    store.saveRun({ id: 'r-fail-orefs', queue: 'default', items: [
+      { id: 'fail-orefs-item', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] },
+    ] }, 'human:brett');
+    store.markReady(['fail-orefs-item']);
+
+    const ex: Executor = {
+      id: 'x',
+      async fire() { return { dispatchHash: 'dh-fo' }; },
+      async reconcile() { return { status: 'failed' as const, outputRefs: { 'x.txt': 'agora://ns/artifact/d/sha256:ab' } }; },
+    };
+
+    await tick(store, { x: ex }, 'default', undefined, { maxAttempts: 1 }); // fire
+    await tick(store, { x: ex }, 'default', undefined, { maxAttempts: 1 }); // reconcile -> failed (terminal)
+
+    const item = store.getItems().find((i) => i.id === 'fail-orefs-item')!;
+    expect(item.status).toBe('failed');
+    expect(item.outputRefs).toBeUndefined();
+  });
+
+  it('does NOT persist outputRefs when a done reconcile has none', async () => {
+    const store = new SqliteRunStateStore();
+    store.ensureQueue('default', 1);
+    store.saveRun({ id: 'r-done-no-orefs', queue: 'default', items: [
+      { id: 'done-no-orefs-item', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] },
+    ] }, 'human:brett');
+    store.markReady(['done-no-orefs-item']);
+
+    const ex: Executor = {
+      id: 'x',
+      async fire() { return { dispatchHash: 'dh-dno' }; },
+      async reconcile() { return { status: 'done' as const }; },
+    };
+
+    await tick(store, { x: ex }, 'default', undefined, { maxAttempts: 1 }); // fire
+    await tick(store, { x: ex }, 'default', undefined, { maxAttempts: 1 }); // reconcile -> done, no outputRefs
+
+    const item = store.getItems().find((i) => i.id === 'done-no-orefs-item')!;
+    expect(item.status).toBe('done');
+    expect(item.outputRefs).toBeUndefined();
+  });
+
   it('does NOT persist resultRef on a requeued retry (not terminal done)', async () => {
     const store = new SqliteRunStateStore();
     store.ensureQueue('default', 1);
