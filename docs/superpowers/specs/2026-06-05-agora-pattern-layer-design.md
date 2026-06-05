@@ -191,10 +191,25 @@ export interface Pattern {
   not just done — gating needs failures; map→reduce needs to know a map died. Patterns ignore
   statuses they don't care about.
 - **At-least-once, derived, never tracked.** The pattern phase in `orchestrator.tick()` scans
-  the store it already reads for sealing: for each pattern-bound queue, for each unsealed run,
+  the store it already reads for sealing: for each pattern-bound queue, for each in-scope run,
   call `onTaskDone` for every terminal item. Idempotency (deterministic ids + extendRun id-skip)
-  makes repeated delivery a no-op. Cost is O(terminal items) of pure map lookups per tick until
-  seal — fine at v1 scale; a high-water mark is a later optimization if pulled.
+  makes repeated delivery a no-op. Cost is O(terminal items) of pure map lookups per tick —
+  fine at v1 scale; a high-water mark is a later optimization if pulled.
+- **Scan scope, both modes.** With `auditLog` configured: runs whose epoch is unsealed
+  (`getAuditRoot(runId) === undefined` — the same guard the seal block uses). Without
+  `auditLog`: all runs of the queue, accepting the idempotent re-scan of settled runs (pure
+  lookups, no-op spawns). The scan-then-spawn-then-seal ordering within one tick is identical
+  in both modes.
+- **`cancelled` is operator intent, not a gate signal.** Curated v1 patterns never spawn from a
+  `cancelled` cause, and `respawnLineage` skips any lineage containing a cancelled member —
+  otherwise a gate's spawn-fix could resurrect a run the operator cancelled. (`onTaskDone`
+  still *receives* cancelled items — the contract stays uniform; the curated policies ignore
+  them.)
+- **SoC: the scan is a pure helper, the orchestrator applies.** `patterns/scan.ts` exports
+  `collectSpawns(items: ItemState[], pattern: Pattern) → Array<{ runId, causeItemId, items:
+  WorkItem[] }>` (pure — mirrors `computeNewlyReady`/`selectRunnable`); `orchestrator.tick()`
+  maps the directives through `extendRun`. Keeps the tick wrapper an applier, per the repo's
+  engine idiom.
 
 ## 5. extendRun — the audited append seam
 
@@ -216,9 +231,14 @@ Semantics, in order:
    Acyclicity is structural: existing items are never mutated, so new edges only point backward.
    Reject → the *spawn* fails (logged via `onError`-style best-effort, run unharmed), never a
    partial append. All-or-nothing.
-3. **Namespace + save**: same `ns()` treatment as `submitRun`; `saveRun`-shaped insert with
-   `actor` and `submittedAt` = now. New items start `pending`; zero-dep spawns ready on the next
-   `computeNewlyReady` pass.
+3. **Namespace + save — reusing `store.saveRun` verbatim, zero `RunStateStore` change**: same
+   `ns()` treatment as `submitRun`, then `store.saveRun({ id: runId, queue, items: newItemsOnly },
+   'pattern:<queue>', now)`. `saveRun` is a plain transactional per-item INSERT
+   (`runstate/sqlite.ts:102-115`) — appending only-new items to an existing run is already its
+   semantics; existing rows are untouched. `items.id` is `TEXT PRIMARY KEY` on namespaced ids,
+   so even a logic-bug double-insert hard-fails the transaction (all-or-nothing holds by
+   schema, not just by code). New items start `pending`; zero-dep spawns ready on the next
+   `computeNewlyReady` pass (`every` over `[]` is true — no trigger involvement).
 4. **Audit**: append `'run.extended'` (new `AuditEntryKind` member — additive; `canonEntry`
    already serializes `kind` positionally): `{ kind: 'run.extended', runId, itemId: <cause
    item>, actor: 'pattern:<queue>', at }`. The *cause* — which completion triggered growth — is
@@ -331,6 +351,8 @@ inputs.gate = {
   exists would mint `fix-2`.)
 - Bounded by `maxFixAttempts` (default 1): when the cause's attempt exceeds it, spawn nothing —
   the run settles failed. `maxItemsPerRun` is the engine-side fuse behind it.
+- **Never from `cancelled`.** A cancelled cause, or any cancelled member in the lineage, means
+  no respawn — operator cancel is intent to stop, and spawn-fix must not resurrect it (§4).
 
 ```
  BEFORE (tick N)                            AFTER pattern phase (same tick)
@@ -438,8 +460,8 @@ impossible (deterministic ids + id-skip + all-or-nothing extendRun).
 **In v1**
 
 - `contracts/pattern.ts` (`Pattern`, `SpawnDirective`, `PatternContext`).
-- `patterns/{static-dag,pipeline,map-reduce,respawn}.ts` (respawn = the shared
-  `respawnLineage()` pure helper).
+- `patterns/{static-dag,pipeline,map-reduce,respawn,scan}.ts` (respawn = the shared
+  `respawnLineage()` pure helper; scan = the pure `collectSpawns()` the orchestrator applies).
 - `QueueConfig.pattern?`; `plan()` invocation in `submitRun`; the pattern phase + `extendRun` +
   `maxItemsPerRun` in `orchestrator.ts`; `'run.extended'` audit kind.
 - `examples/pattern-mapreduce` — fake splitter writes N `outputs/` files (N decided by the fake
@@ -480,7 +502,8 @@ impossible (deterministic ids + id-skip + all-or-nothing extendRun).
 | Concern | Repo pattern followed | Where |
 |---|---|---|
 | Policy seam contract | `Trigger` (contracts/trigger.ts) — small policy interface, impls in own dir | `contracts/pattern.ts`, `patterns/` |
-| Engine SoC | `tick` orchestrates; pure IO-free decision helpers; **engine untouched here** | pattern hooks pure; orchestrator applies |
+| Engine SoC | `tick` orchestrates; pure IO-free decision helpers; **engine untouched here** | pattern hooks + `collectSpawns` pure; orchestrator applies |
+| Store interface stability | `saveRun` is a plain transactional INSERT; `items.id` PK enforces all-or-nothing | extendRun reuses `store.saveRun` — zero `RunStateStore` change |
 | Idempotency | cron's deterministic-id → free-dedup posture | deterministic spawn ids + id-skip |
 | Validation | One pure validator, N callers (was 2: submit + CLI; now 3: + extendRun) | `validateRun` over merged graph |
 | Audit additivity | `canonEntry` positional fields; additive optional fields hash-safe | `'run.extended'` kind |
