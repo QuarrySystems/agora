@@ -43,7 +43,10 @@ The bundle is the §6.5 compliance artifact. Its top-level shape (from
     "root": { /* AnchoredRoot — the anchored (optionally signed) Merkle root */ }
   },
   "items":  [ { "id": "...", "status": "...", "attempts": 1, "actor": "...", "resultRef": "...", "manifestRef": "..." } ],
-  "report": { "runId": "...", "intact": true, "anchorId": "local", "guarantee": "detect", "claim": "tamper-detecting" }
+  "report": {
+    "runId": "...", "intact": true, "anchorId": "local", "guarantee": "detect", "claim": "tamper-detecting",
+    "checks": { "chain": { "ok": true }, "root": { "ok": true }, "signature": { "ok": "n/a" }, "anchor": { "ok": true } }
+  }
 }
 ```
 
@@ -72,7 +75,8 @@ The report fields (`VerificationReport`, `contracts/audit.ts:33`):
 | `anchorId` | The anchor in force — `"local"` for `LocalAnchor`, `"s3:<bucket>"` for `S3ObjectLockAnchor`. |
 | `guarantee` | The anchor's tier: `"detect"`, `"external-immutable"`, or `"witnessed"`. |
 | `claim` | What verification can *prove*: `"tamper-detecting"` or `"tamper-evident"`. |
-| `failure` | Present only when `intact` is `false`: one of `chain`, `anchor-missing`, `root-mismatch`, `signature`. |
+| `failure` | Present only when `intact` is `false`: the **first** failing check — one of `chain`, `anchor-missing`, `root-mismatch`, `signature`. |
+| `checks` | Collect-all per-check results: `chain`, `root`, `signature`, `anchor`, each `{ ok: true \| false \| 'n/a'; detail? }`. Every check is evaluated (no early return), so a failing bundle reports the state of all four. This is what `agora verify` renders as a checklist. |
 
 **`report.intact === true`** means every check passed: the lifecycle log has not
 been altered, and the recomputed root matches what the anchor holds.
@@ -140,44 +144,64 @@ failing check — for an edited log entry:
 
 The process exits non-zero in this case.
 
-## 4. Hand the bundle to a third party
+## 4. Hand the bundle to a third party — `agora verify`
 
 The bundle written by `--out` is a self-contained JSON file. It carries the
 dispatch manifests (refs only — `secretRefs` are references, never secret
 values), the full hash-chained `auditLog` (entries plus the anchored root), the
 per-item outcomes, and the report from the run that produced it.
 
-How an independent party re-verifies it is the important — and honest — part:
+An independent party re-verifies it with the top-level `agora verify` command:
 
-<Aside type="caution" title="There is no standalone third-party verifier binary">
-Verification is **not** a pure function of the bundle file. `verify()`
-deliberately fetches the anchored root from the **live anchor**, not from the
-copy embedded in the bundle (see the comment in `bundle.ts`: *"the data is
-UNTRUSTED; integrity comes from verify() comparing the recomputed root to the
-LIVE anchored root"*). A bundle that carried its own root would let a tamperer
-rewrite the log and the root together.
+```sh
+agora verify bundle.json
+```
 
-There is **no shipped standalone verifier CLI** that re-checks a bundle file in
-isolation. To independently re-verify, a third party needs:
+`verify` rebuilds an in-memory audit store from the bundle's entries, re-runs the
+same `verify()` logic, and prints a human-readable checklist + hash-chained
+ledger. On a clean bundle:
 
-1. **The audit export / log entries** — present in the bundle (`auditLog.entries`).
-2. **Read access to the same anchor** that sealed the run, to fetch the
-   authoritative root. For the `external-immutable` tier this is the
-   `S3ObjectLockAnchor` bucket — grant the auditor read access to that S3
-   location (`audit/roots/<run-id>.json`) and they can re-run the same
-   recompute-and-compare logic the report performed.
+```text
+  agora verify  ·  run_a3f9c2                  ✓ TAMPER-EVIDENT
+  ──────────────────────────────────────────────────────────
+  ✓ chain        10 entries, hash-linked, no gaps
+  ✓ root         merkle c4f1a9…  =  anchored root
+  ✓ signature    ed25519 / agora-prod  valid
+  ✓ anchor       s3:my-audit-bucket  (external-immutable)
+  …
+```
 
-For the local tier, the anchored root lives in the operator's own store, so
-"independent" re-verification is only as independent as that store. This is
-exactly why the local tier claims `tamper-detecting` and not `tamper-evident`:
-the trust domain of the anchor is the same as the trust domain of the log.
+If any entry was altered after sealing, the verdict flips to `✗ TAMPERED`, the
+failing check is marked (and the offending ledger row flagged), and the command
+**exits non-zero** — so `verify` is safe to gate a CI step or an incident-review
+script on. Pass `--json` to emit the raw `VerificationReport` instead, or `--full`
+to print every ledger row.
+
+<Aside type="caution" title="verify consults the LIVE anchor — not the bundle's embedded root">
+`agora verify` is **not** a pure function of the bundle file. Like `verify()`
+itself, it fetches the anchored root from the **live anchor**, never the copy
+embedded in the bundle (see the comment in `bundle.ts`: *"the data is UNTRUSTED;
+integrity comes from verify() comparing the recomputed root to the LIVE anchored
+root"*). A bundle that carried its own trusted root would let a tamperer rewrite
+the log and the root together.
+
+So a third party still needs two things, and configures the anchor in their own
+`agora.config` (the same `orch` context `orch audit` uses):
+
+1. **The bundle file** — carries the log entries (`auditLog.entries`).
+2. **Read access to the same anchor** that sealed the run. For the
+   `external-immutable` tier this is the `S3ObjectLockAnchor` bucket — grant the
+   auditor read access to that S3 location (`audit/roots/<run-id>.json`).
+
+For the local tier the anchored root lives in the operator's own store, so
+"independent" re-verification is only as independent as that store — which is
+exactly why the local tier claims `tamper-detecting`, not `tamper-evident`: the
+trust domain of the anchor is the same as the trust domain of the log.
 </Aside>
 
-In practice, the strongest hand-off today is: configure the
-`S3ObjectLockAnchor` tier, give the auditor read access to the bundle **and** to
-the Object Lock bucket, and have them re-run the recompute-and-compare against
-that external root. A drop-in third-party verifier binary that takes a bundle
-plus an anchor reference is not part of V1.
+For programmatic use, the same check is the `verifyBundle(bundle, { anchor })`
+library entry point, exported from `@quarry-systems/agora-orchestrator` so an
+auditor can re-verify a handed-over bundle inside their own tooling.
 
 ## Next steps
 

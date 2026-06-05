@@ -11,6 +11,16 @@ workspace. See [RELEASING.md](./RELEASING.md) for how a release is cut.
 
 ### Added
 
+- **Bundle verification (`agora verify <bundle.json>`).** A standalone, top-level
+  command that re-verifies an exported audit bundle against its **external** anchor
+  (never the root embedded in the bundle) and prints a human-readable checklist +
+  hash-chained ledger, exiting non-zero on tamper (`--json` for the raw report,
+  `--full` for every ledger row). Backed by a new library entry point
+  `verifyBundle(bundle, { anchor })` and a `renderVerification()` formatter, both
+  exported from `agora-orchestrator`. `VerificationReport` now also carries a
+  collect-all `checks` map (`chain` / `root` / `signature` / `anchor`) alongside the
+  existing `intact` / `claim` / `failure`.
+
 - **Cron scheduling (`agora orch schedule add|list|rm`).** Recurring submissions
   via a cron scheduler that feeds the existing submission inbox — no new Trigger
   primitive required. Schedules are persisted in a `schedules` SQLite table via a

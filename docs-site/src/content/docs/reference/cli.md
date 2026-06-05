@@ -96,7 +96,7 @@ it.
 | `status [run-id]` | — | Prints the latest status record for the run as pretty JSON (or `null`). |
 | `watch <run-id>` | — | Follows the run, printing each status update as JSON until a terminal state. Ctrl-C to stop. |
 | `cancel <target>` | `--actor <id>` | Requests cancellation of a run/item. Prints `cancel requested: <target>`. |
-| `audit <run-id>` | `--out <path>` | Produces the audit bundle. Writes to `--out` if given, else prints JSON. **Sets exit code `1` when the bundle's `report.intact` is false.** See [Export & verify an audit bundle](/agora/how-to/verify-audit-bundle/). |
+| `audit <run-id>` | `--out <path>` | Produces the audit bundle. Writes to `--out` if given, else prints JSON. **Sets exit code `1` when the bundle's `report.intact` is false.** Pair with the top-level [`agora verify`](#agora-verify) to re-check an exported bundle. See [Export & verify an audit bundle](/agora/how-to/verify-audit-bundle/). |
 | `serve` | — | Starts the long-running orchestrator driver via the config's `runService`. Errors if the `orch` export provides no `runService`. Wires `SIGINT`/`SIGTERM` to an `AbortController` for graceful shutdown. |
 | `schedule add` | `--id <id>` (required), `--cron "<expr>"` (required), `--plan <plan.json>` (required), `--actor <id>` | Validates the cron expression up front (throws on invalid syntax), computes the first `nextDueAt`, and upserts the schedule. Re-running with the same `--id` is an idempotent update — the expression, template, and actor are replaced, and bookkeeping recomputed. Prints `schedule '<id>' next due <ISO>`. Errors if the `orch` export provides no `scheduleStore`. |
 | `schedule list` | — | Prints one tab-delimited line per schedule: `id\tcronExpr\tlast=<ISO or '-'>\tnext=<ISO>`. Errors if the `orch` export provides no `scheduleStore`. |
@@ -104,3 +104,17 @@ it.
 
 The actor for `submit`, `cancel`, and `schedule add` resolves as: the `--actor` flag, else
 `$AGORA_ACTOR`, else `human:<os-username>`.
+
+## `agora verify`
+
+Re-verify an **exported** audit bundle against its external anchor. Top-level
+(sibling to `orch`), and — like `orch audit` — it requires the `agora.config` to
+export an `orch` context carrying an `anchor`.
+
+| Args / options | Behavior |
+|---|---|
+| `verify <bundle.json>` · `--json`, `--full` | Reads and parses the bundle file, rebuilds an in-memory audit store from its `auditLog.entries`, and re-runs `verify()` against the **live anchor** — never the root embedded in the bundle. Prints a human-readable checklist + hash-chained ledger. `--json` emits the raw `VerificationReport` (including the collect-all `checks` map); `--full` prints every ledger row instead of head+tail. **Sets exit code `1` when the bundle does not verify.** See [Export & verify an audit bundle](/agora/how-to/verify-audit-bundle/). |
+
+The same check is available programmatically as `verifyBundle(bundle, { anchor })`,
+exported from `@quarry-systems/agora-orchestrator` for third parties who want to
+re-verify a handed-over bundle in their own tooling.

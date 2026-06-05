@@ -74,6 +74,8 @@ agora orch serve              # long-running driver (sole DB owner)
 agora orch submit plan.json   # non-blocking; prints a run id
 agora orch watch <run-id>     # follow the run to completion
 agora orch audit <run-id>     # exportable evidence bundle (verifies; names the guarantee tier)
+agora orch audit <run-id> --out bundle.json   # write the bundle to a file
+agora verify bundle.json      # re-verify an exported bundle against its external anchor
 ```
 
 See [`examples/offload-fanout/`](examples/offload-fanout/) for the runnable
