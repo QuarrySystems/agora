@@ -850,6 +850,45 @@ describe('DispatchExecutor', () => {
     resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
   });
 
+  it('omits inputRefs from the dispatch work when the carrier is present but empty', async () => {
+    const capturedTaskSpecs: import('@quarry-systems/agora-core').TaskSpec[] = [];
+    const { compute: baseCompute, resolveExit } = makeDeferredCompute();
+    const capturingCompute: import('@quarry-systems/agora-core').ComputeProvider = {
+      name: 'capturing',
+      async run(spec, ctx) {
+        capturedTaskSpecs.push(spec);
+        return baseCompute.run(spec, ctx);
+      },
+      awaitExit: baseCompute.awaitExit.bind(baseCompute),
+    };
+
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: capturingCompute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img' });
+
+    // inputRefs carrier is present but empty — should behave the same as absent
+    const item: WorkItem = {
+      ...baseItem,
+      inputs: { subagent: 's', inputRefs: {} },
+    };
+
+    await executor.fire(item);
+
+    expect(capturedTaskSpecs).toHaveLength(1);
+    const bundleRefs = JSON.parse(capturedTaskSpecs[0].env.AGORA_BUNDLE_REFS_JSON);
+    // inputs array should be empty when inputRefs is present but empty
+    expect(bundleRefs.inputs).toEqual([]);
+
+    resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
+  });
+
   it('drops non-string values in inputs.inputRefs without failing the dispatch', async () => {
     const capturedTaskSpecs: import('@quarry-systems/agora-core').TaskSpec[] = [];
     const { compute: baseCompute, resolveExit } = makeDeferredCompute();
