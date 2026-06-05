@@ -1,7 +1,15 @@
 import type { AuditStore, AuditAnchor, VerificationReport, Signature } from '../contracts/index.js';
 import { GUARANTEE_RANK } from '../contracts/index.js';
+import type { Guarantee } from '../contracts/index.js';
 import { canonEntry } from './canon.js';
 import { chainHash, merkleRoot, leavesFromEntryHashes } from './merkle.js';
+
+/** DRY claim rule (spec §7): tamper-evident only when guarantee >= external-immutable AND intact. */
+export function claimFor(intact: boolean, guarantee: Guarantee): 'tamper-evident' | 'tamper-detecting' {
+  return intact && GUARANTEE_RANK[guarantee] >= GUARANTEE_RANK['external-immutable']
+    ? 'tamper-evident'
+    : 'tamper-detecting';
+}
 
 export async function verify(
   runId: string,
@@ -45,6 +53,7 @@ export async function verify(
     root: { ok: rootOk },
     signature: { ok: sigOk },
     anchor: { ok: anchorOk },
+    handoff: { ok: 'n/a' as const },
   };
 
   const intact = chainOk && anchorOk && rootOk !== false && sigOk !== false;
@@ -56,11 +65,7 @@ export async function verify(
     : sigOk === false ? 'signature' as const
     : undefined;
 
-  // Tamper-evident only when guarantee >= external-immutable AND intact
-  const claim =
-    intact && GUARANTEE_RANK[g] >= GUARANTEE_RANK['external-immutable']
-      ? 'tamper-evident' as const
-      : 'tamper-detecting' as const;
+  const claim = claimFor(intact, g);
 
   return { runId, anchorId: deps.anchor.id, guarantee: g, intact, claim, failure, checks };
 }
