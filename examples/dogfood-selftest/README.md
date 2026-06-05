@@ -1,5 +1,56 @@
 # dogfood-selftest — agora offloads work on agora
 
+## Run 2 (current): a DEPENDENT chain via the typed-product handoff
+
+Run 1 (below) proved independent fan-out; its four patches landed as PR #36.
+**Run 2 proves the new thing**: two tasks where B genuinely builds on A's edit,
+wired by `needs` — the typed-product handoff (PRs #39/#40/#41) exercised LIVE
+with real Claude Code workers on agora's own tree.
+
+| Item | Target (locked) | What |
+|---|---|---|
+| `readme-handoff-section` | `README.md` | add a Typed-product handoff section under `## Offload` |
+| `docs-handoff-page` | `docs-site/src/content/docs/explanation/typed-product-handoff.md` *(new)* | **needs A's patch** — applied to its workspace pre-run; writes the docs page consistent with A's actual wording |
+
+What the run exercises end-to-end, live:
+
+- `needs` declaration only (no hand-written `depends_on` on B) → submit-gate
+  auto-union + whole-DAG validation.
+- Resolve-at-fire → B's worker fetch-verifies A's patch and materializes it at
+  `inputs/patch`.
+- A capability-shipped `agora-setup.sh` (`git init -q && git apply inputs/patch`)
+  applies it BEFORE the agent runs — so B's baseline contains A's edit and B's
+  escaped patch is ONLY B's own work.
+- Consumed/produced refs are sealed in the evidence; the driver re-verifies with
+  `verifyBundle` and **exits non-zero unless `intact` AND `checks.handoff.ok` —
+  the provenance-closure row, green on a real run, is the acceptance criterion.**
+
+Worker image: `ghcr.io/quarrysystems/agora-worker:main` (carries the Wave A–C
+worker code; `:latest` only rolls on v* tags and is still pre-handoff — do not
+use it for this run).
+
+```sh
+# from this dir, with ../../.env containing ANTHROPIC_API_KEY
+pnpm start:env
+# or: export ANTHROPIC_API_KEY=sk-ant-... && pnpm start
+```
+
+Review afterwards, in order, from the repo root:
+
+```sh
+git apply --stat examples/dogfood-selftest/patches/readme-handoff-section.patch
+git apply        examples/dogfood-selftest/patches/readme-handoff-section.patch
+git apply --stat examples/dogfood-selftest/patches/docs-handoff-page.patch
+git apply        examples/dogfood-selftest/patches/docs-handoff-page.patch
+```
+
+Run-1's plan is preserved at `plan-run1.json`; its raw (pre-review) worker
+outputs live under `patches/raw-outputs/` — the reviewed versions merged as #36.
+
+---
+
+# Run 1 (history): independent 4-task fan-out
+
 The first **dogfood run**: agora dispatches 4 real, file-disjoint maintenance
 tasks on its **own source tree** to parallel Claude Code workers, escapes a
 reviewable patch per task, and seals a tamper-detecting audit bundle.
@@ -28,23 +79,8 @@ the good ones, and let CI confirm.
 When hand-reviewing every patch becomes the bottleneck, that pain pulls **Gap A**
 (a toolchain-capable worker image so the worker self-verifies). That is the *next*
 build — pulled by felt pain, not pre-built.
-
-## Run it (LIVE — needs Docker + an Anthropic key)
-
-```sh
-# from this dir, with ../../.env containing ANTHROPIC_API_KEY
-pnpm start:env
-# or: export ANTHROPIC_API_KEY=sk-ant-... && pnpm start
-```
-
-Prerequisites:
-- Docker reachable (local Desktop, or `DOCKER_HOST` → a remote daemon).
-- `ghcr.io/quarrysystems/agora-worker:latest` pullable.
-- `ANTHROPIC_API_KEY` set.
-
-The run submits `plan.json`, fans out under concurrency 2, downloads each item's
-patch to `./patches/<item>.patch`, and prints the audit bundle (`intact`, `claim`,
-`guarantee`).
+*(Run-1 epilogue: Gap A indeed shipped next, as PR #37 — in-worker self-verify;
+the full agora toolchain image remains unpulled.)*
 
 ## After the run
 

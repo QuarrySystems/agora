@@ -1,16 +1,23 @@
-// dogfood-selftest — agora offloads real maintenance work on its OWN source tree.
+// dogfood-selftest RUN 2 — agora offloads DEPENDENT work on its OWN source tree,
+// exercising the typed-product handoff live (run 1, the 4-task independent fan-out,
+// landed as PR #36; its plan is preserved as plan-run1.json).
 //
-// Four file-disjoint tasks fan out to parallel Claude Code workers. Each worker
-// gets a fresh workspace seeded with the exact agora source files its task needs
-// (at real repo-relative paths), makes its edit, and the orchestrator escapes the
-// workspace diff as a content-addressed patch artifact (the item's result_ref).
-// After the run, each patch is downloaded to ./patches/<item>.patch for you to
-// review, `git apply`, and let CI verify — this is Tier 0: NO in-worker toolchain,
-// so the worker cannot run vitest/tsc on its own edit. Human + CI are the verifier.
+// Two-task dependent chain via `needs` (no hand-written depends_on on task B):
+//   A `readme-handoff-section` — adds a Typed-product handoff section to README.md.
+//   B `docs-handoff-page`     — declares needs.patch = A's patch; the worker
+//      materializes it at inputs/patch, a capability-shipped agora-setup.sh
+//      git-applies it BEFORE the agent runs, and the agent writes the docs-site
+//      page consistent with A's actual wording. B literally builds on A's edit.
+// After the run: patches escape per task, the audit bundle is assembled, and
+// verifyBundle must report intact + checks.handoff.ok (provenance closure) —
+// that green row on a REAL run is the point of run 2.
+// Tier 0 posture unchanged: no in-worker toolchain; you + CI review the patches.
 //
 // Prerequisites (LIVE run):
 //   - Docker reachable (local Desktop, or DOCKER_HOST → a remote daemon).
-//   - The worker image pullable: ghcr.io/quarrysystems/agora-worker:latest.
+//   - The worker image pullable: ghcr.io/quarrysystems/agora-worker:main
+//     (`:main` carries the Wave A–C handoff worker code; `:latest` only rolls on
+//     v* tags and is still pre-handoff — do NOT use it for this run).
 //   - ANTHROPIC_API_KEY set. Run: `pnpm start:env` (reads ../../.env) or export it.
 
 import { readFile, writeFile, mkdtemp, mkdir, rm } from 'node:fs/promises';
@@ -38,6 +45,7 @@ import {
   LocalDirMailbox,
   OperationsApi,
   serve,
+  verifyBundle,
 } from '@quarry-systems/agora-orchestrator';
 import type { Run } from '@quarry-systems/agora-orchestrator';
 
@@ -45,22 +53,26 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '../../..');
 const PLAN_PATH = join(__dirname, '../plan.json');
 const PATCHES_DIR = join(__dirname, '../patches');
-const WORKER_IMAGE = 'ghcr.io/quarrysystems/agora-worker:latest';
-const RUN_TIMEOUT_MS = 600_000; // 10 min: 4 real edit tasks under concurrency 2
+// :main carries Waves A–C (handoff worker code); :latest is pre-handoff until a v* tag.
+const WORKER_IMAGE = 'ghcr.io/quarrysystems/agora-worker:main';
+const RUN_TIMEOUT_MS = 600_000; // 10 min: 2 real edit tasks, B strictly after A
 
 // The agora source files each task needs in its workspace, keyed by the REAL
 // repo-relative path so the escaped patch applies straight back onto the repo.
-// Targets are the files tasks edit/create; refs are read-only style examples.
+// Both tasks share one seed capability: A edits README.md; B's workspace gets the
+// SAME README.md base so A's patch (materialized at inputs/patch) applies cleanly.
 const SEED_FILES = [
-  // task targets (read to edit / read to model a new test against)
-  'packages/agora-cli/src/sync.ts',
-  'packages/agora-client/src/errors.ts',
-  'packages/agora-client/src/dispatch.ts',
-  'packages/agora-cli/src/manifest-parser.ts',
-  // style references for the two new-test tasks
-  'packages/agora-cli/test/frontmatter.test.ts',
-  'packages/agora-client/test/secret-ttl.test.ts',
+  'README.md',     // A's target; B's apply base
+  'CHANGELOG.md',  // wording source for A
+  'docs-site/src/content/docs/explanation/how-offload-runs.md', // style reference for B's new page
 ] as const;
+
+// Capability shipped ONLY to task B's subagent: applies the upstream patch before
+// the agent runs. Setup scripts execute after overlay (inputs/ exists) and before
+// captureBaseline — so the applied content is part of B's baseline and B's escaped
+// patch contains ONLY B's own edits. git init is required: the workspace is not a
+// repo until captureBaseline. (Path is inputs/<needs-key>; the needs key is `patch`.)
+const APPLY_PATCH_SETUP_SH = '#!/bin/sh\nset -e\ngit init -q\ngit apply inputs/patch\n';
 
 const apiKeyRaw = process.env.ANTHROPIC_API_KEY;
 if (!apiKeyRaw) {
@@ -103,17 +115,30 @@ async function main(): Promise<void> {
       ),
     );
     await client.capabilities.register({ name: 'agora-src', files: seeded });
+    await client.capabilities.register({
+      name: 'apply-upstream-patch',
+      files: { 'agora-setup.sh': APPLY_PATCH_SETUP_SH },
+    });
 
-    // 3. One templated code-edit subagent. {{{instructions}}} is unescaped so the
-    //    task text passes through verbatim (backticks/punctuation intact).
+    // 3. Two templated subagents sharing one prompt. {{{instructions}}} is unescaped
+    //    so the task text passes through verbatim (backticks/punctuation intact).
+    //    `apply-edit` differs only by also carrying the apply-upstream-patch
+    //    capability (per-item capability overrides aren't threaded through the
+    //    orchestrator dispatch path, so the binding lives on the subagent).
+    const PROMPT =
+      'You are a coding agent working inside a workspace that holds a subset of the agora ' +
+      'monorepo at real repository paths (e.g. `README.md`, `docs-site/src/content/...`). Complete EXACTLY ' +
+      'the task below. Create or edit only the file(s) the task names; change nothing else. Use ' +
+      'the Edit/Write tools, then stop.\n\nTASK:\n{{{instructions}}}';
     await client.subagent.register({
       name: 'code-edit',
-      promptTemplate:
-        'You are a coding agent working inside a workspace that holds a subset of the agora ' +
-        'monorepo at real repository paths (e.g. `packages/agora-cli/src/...`). Complete EXACTLY ' +
-        'the task below. Create or edit only the file(s) the task names; change nothing else. Use ' +
-        'the Edit/Write tools, then stop.\n\nTASK:\n{{{instructions}}}',
+      promptTemplate: PROMPT,
       capabilities: ['agora-src'],
+    });
+    await client.subagent.register({
+      name: 'apply-edit',
+      promptTemplate: PROMPT,
+      capabilities: ['agora-src', 'apply-upstream-patch'],
     });
 
     // 4. Audit primitives (tamper-detecting tier — LocalAnchor).
@@ -209,12 +234,18 @@ async function main(): Promise<void> {
         }
       }
       if (!bundle) throw new Error('audit export never became available');
-      console.log(`  intact:    ${bundle.report.intact}`);
-      console.log(`  claim:     ${bundle.report.claim}`);
-      console.log(`  anchorId:  ${bundle.report.anchorId ?? '(none)'}`);
-      console.log(`  guarantee: ${bundle.report.guarantee}`);
-      if (bundle.report.failure) console.log(`  failure:   ${bundle.report.failure}`);
-      if (!bundle.report.intact) bundleOk = false;
+      // api.audit's embedded report is the bare verify (handoff is 'n/a' there by
+      // design — entry-level verify has no manifests). Re-verify the assembled
+      // bundle with verifyBundle to compute the PROVENANCE-CLOSURE handoff check:
+      // the run-2 payoff is this row being green on a real dependent run.
+      const report = await verifyBundle(bundle, { anchor, verifySignature });
+      console.log(`  intact:         ${report.intact}`);
+      console.log(`  claim:          ${report.claim}`);
+      console.log(`  anchorId:       ${report.anchorId ?? '(none)'}`);
+      console.log(`  guarantee:      ${report.guarantee}`);
+      console.log(`  checks.handoff: ${JSON.stringify(report.checks.handoff)}`);
+      if (report.failure) console.log(`  failure:        ${report.failure}`);
+      if (!report.intact || report.checks.handoff.ok !== true) bundleOk = false;
     } catch (err) {
       console.error('  audit failed:', err);
       bundleOk = false;
@@ -226,11 +257,12 @@ async function main(): Promise<void> {
 
     // 12. Honest exit. A failed ITEM does not fail the harness — review the patches.
     if (!bundleOk) {
-      console.error('\n=== dogfood-selftest: audit bundle NOT intact ===');
+      console.error('\n=== dogfood run 2: bundle NOT intact or handoff closure NOT proven ===');
       process.exitCode = 1;
     } else {
       const n = items.filter((i) => i.resultRef).length;
-      console.log(`\n=== dogfood-selftest OK — ${n}/${items.length} items produced a patch; bundle tamper-detecting + intact ===`);
+      console.log(`\n=== dogfood run 2 OK — ${n}/${items.length} items produced a patch; provenance closure PROVEN on a real dependent run ===`);
+      console.log('   apply order from repo root: patches/readme-handoff-section.patch, then patches/docs-handoff-page.patch');
       if (anyFailed) console.log('   (one or more items failed — expected-possible on Tier 0; inspect above)');
     }
   } finally {
