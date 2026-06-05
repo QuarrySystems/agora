@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { verifyBundle, renderVerification } from '@quarry-systems/agora-orchestrator';
+import type { AuditBundle } from '@quarry-systems/agora-orchestrator';
 import type { CliContext } from './index.js';
 
 export function attachVerifyCmd(program: Command, ctx: CliContext): void {
@@ -10,7 +11,7 @@ export function attachVerifyCmd(program: Command, ctx: CliContext): void {
     .option('--json', 'emit the raw VerificationReport as JSON')
     .option('--full', 'print every ledger row')
     .action(async (file: string, opts: { json?: boolean; full?: boolean }) => {
-      let bundle: any;
+      let bundle: AuditBundle;
       try {
         bundle = JSON.parse(await readFile(file, 'utf8'));
       } catch (err) {
