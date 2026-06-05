@@ -184,16 +184,19 @@ outputRefs?: Record<string, string>;
 ```
 
 ```typescript
-// test/orchestrator-audit-export.test.ts (extend in the file's existing style — drive a run
-// via the file's harness, set refs on completion, read the export)
+// test/orchestrator-audit-export.test.ts — REAL harness: the file defines
+// makeOrchWithAudit(store) (AuditLog over NoneSigner + LocalAnchor), makeResultExecutor(ref),
+// and oneItemRun. Add a sibling executor variant that reconciles done with outputRefs, then:
 it('audit export items carry outputRefs when the item produced them', async () => {
-  // ...existing harness: orchestrator with auditLog, submit + drive a 1-item run whose fake
-  // executor reconciles done with outputRefs { 'report.txt': 'agora://ns/artifact/d/sha256:ab' }...
-  const exp = /* the published AuditExport */;
-  expect(exp.items.find((i) => i.id === 'a')!.outputRefs)
+  // makeOrchWithAudit + an executor reconciling
+  //   { status: 'done', outputRefs: { 'report.txt': 'agora://ns/artifact/d/sha256:ab' } };
+  // submitRun + tick twice (fire, reconcile) — the run auto-seals on completion;
+  const exp = orch.getAuditExport('run-export-test');   // public, orchestrator.ts:190
+  expect(exp.items.find((i) => i.id === 'step-a')!.outputRefs)
     .toEqual({ 'report.txt': 'agora://ns/artifact/d/sha256:ab' });
 });
-// plus: an item without outputRefs has NO outputRefs key on its outcome (conditional spread).
+// plus: an item without outputRefs has NO outputRefs key on its outcome (conditional spread,
+// asserted with 'outputRefs' in outcome === false).
 ```
 
 ## Acceptance criteria
@@ -207,6 +210,12 @@ it('audit export items carry outputRefs when the item produced them', async () =
   assertion in `test/audit/verify.test.ts` in the file's property-wise style:
   `expect(r.checks.handoff.ok).toBe('n/a')`. The closure logic itself belongs to the handoff-check
   task (`verify-bundle.ts` only — this task must not touch that file).
+- DRY pin: extract the claim rule into an exported helper in `verify.ts` —
+  `export function claimFor(intact: boolean, guarantee: Guarantee): 'tamper-evident' | 'tamper-detecting'`
+  — and have `verify()`'s existing claim computation use it. (`verifyBundle` — a dependent task —
+  must recompute `claim` after the handoff merge and imports this helper rather than duplicating the
+  `GUARANTEE_RANK` rule.) Verified: `verify.ts` is the ONLY src constructor of the checks object, so
+  no other construct-site fallout exists.
 - All existing export/audit tests pass unchanged.
 
 Test file: `packages/agora-orchestrator/test/orchestrator-audit-export.test.ts`.
@@ -239,8 +248,8 @@ export async function verifyBundle(bundle, deps): Promise<VerificationReport> {
   const handoff = checkHandoffClosure(bundle);          // pure, local helper
   const intact = base.intact && handoff.ok !== false;
   const failure = base.failure ?? (handoff.ok === false ? ('handoff' as const) : undefined);
-  // claim: recompute with the same guarantee rule verify uses, but on the new intact
-  return { ...base, intact, failure, checks: { ...base.checks, handoff } };
+  const claim = claimFor(intact, base.guarantee);       // DRY: imported from ./verify.js (contracts task extracts it)
+  return { ...base, intact, failure, claim, checks: { ...base.checks, handoff } };
 }
 
 /** Provenance closure (spec §7): every manifests[*].inputRefs value must equal some item's
@@ -268,18 +277,27 @@ function checkHandoffClosure(bundle: AuditBundle): CheckResult {
 ```
 
 ```typescript
-// test/audit/verify-bundle.test.ts (the file's existing bundle-fixture style)
+// test/audit/verify-bundle.test.ts — REAL harness: the file already exports a
+// `buildSealedBundle(runId)` helper producing a correctly chained bundle (entries via
+// chainHash/canonEntry, real merkle root, fake anchorOf(root)). Extend the returned
+// bundle with manifests/items per case (spread), and add the now-required `handoff`
+// field to its report fixture. NOTE: its report fixture is a STALE pre-computed object —
+// verifyBundle recomputes, so only the fixture's type-completeness matters.
 it('handoff passes when every consumed inputRef matches a sealed product', async () => {
-  // bundle: item A { resultRef: REF_A }, item B; manifest for B { inputRefs: { patch: REF_A } }
-  // expect report.checks.handoff to equal { ok: true, detail: '1 input ref accounted for' }
-  // and report.intact to be true (given a green chain fixture)
+  const { bundle, root } = buildSealedBundle('r');
+  bundle.items = [{ id: 'a', status: 'done', resultRef: REF_A }, { id: 'b', status: 'done' }];
+  bundle.manifests = [manifestFor('b', { patch: REF_A })]; // small local helper over buildManifest
+  const report = await verifyBundle(bundle, { anchor: anchorOf(root) });
+  expect(report.checks.handoff).toEqual({ ok: true, detail: '1 input ref accounted for' });
+  expect(report.intact).toBe(true);
 });
 it('handoff fails closed on an unaccounted input ref', async () => {
-  // manifest for B { inputRefs: { patch: REF_GHOST } } with no producing item
-  // expect handoff.ok false, detail naming B/patch/REF_GHOST, report.intact false, failure 'handoff'
+  // manifestFor('b', { patch: REF_GHOST }) with no producing item ->
+  // handoff.ok false, detail naming b/patch/REF_GHOST, intact false, failure 'handoff'
 });
 it('outputRefs products satisfy the closure too', async () => {
-  // item A { outputRefs: { 'data.bin': REF_O } }; manifest B { inputRefs: { data: REF_O } } -> ok true
+  // items: [{ id: 'a', status: 'done', outputRefs: { 'data.bin': REF_O } }, ...];
+  // manifestFor('b', { data: REF_O }) -> handoff.ok true
 });
 ```
 
@@ -312,22 +330,30 @@ existing row style (`render.ts:95-108`).
 ## Implementation
 
 ```typescript
-// audit/render.ts — after the anchor row (:108):
-const handoffDetail =
-  r.checks.handoff.detail ?? (r.checks.handoff.ok === 'n/a' ? 'n/a' : String(r.checks.handoff.ok));
-lines.push(`  ${mark(r.checks.handoff, color)} handoff      ${handoffDetail}`);
+// audit/render.ts — after the anchor row (:108). BACKWARD COMPAT: renderVerification is a
+// public export and bundle JSONs exported BEFORE this wave have no handoff field in their
+// stale report objects — access it defensively (the CLI path is safe — cmd-verify.ts renders
+// the FRESH verifyBundle report — but third-party callers may pass an old bundle.report):
+const handoff = r.checks.handoff ?? { ok: 'n/a' as const };
+const handoffDetail = handoff.detail ?? (handoff.ok === 'n/a' ? 'n/a' : String(handoff.ok));
+lines.push(`  ${mark(handoff, color)} handoff      ${handoffDetail}`);
 ```
 
 ```typescript
-// test/audit/render.test.ts (the file's greenBundle() fixture style — fixtures gain a
-// handoff entry in their checks objects)
+// test/audit/render.test.ts — REAL fixtures: greenBundle() and tamperedBundle() take NO
+// arguments and construct their report.checks literally (:21-60) — add `handoff` to both
+// fixtures' checks objects, and add a small local way to vary it (e.g. give greenBundle an
+// optional `checks?: Partial<VerificationReport['checks']>` param spread over the defaults).
 it('renders the handoff row with its detail', () => {
   const out = renderVerification(greenBundle({ handoff: { ok: true, detail: '2 input refs accounted for' } }));
   expect(out).toContain('handoff');
   expect(out).toContain('2 input refs accounted for');
 });
 it('marks a failed handoff with the failure glyph', () => {
-  // handoff { ok: false, detail: 'item b input patch: ... not produced ...' } -> row shows the ✗ mark style
+  // handoff { ok: false, detail: 'item b input patch: ... not produced ...' } -> ✗ mark style
+});
+it('tolerates a pre-handoff bundle report (field absent) by rendering n/a', () => {
+  // build a report object WITHOUT handoff (cast as VerificationReport) -> row renders 'n/a', no throw
 });
 ```
 
@@ -335,7 +361,10 @@ it('marks a failed handoff with the failure glyph', () => {
 
 - Green report renders a `handoff` row after `anchor` with its detail; `'n/a'` renders as `n/a` (same
   convention as the signature row); failed handoff renders with the failure mark.
-- Existing render tests pass (fixtures updated only by adding the now-required `handoff` field).
+- A report object lacking `handoff` entirely (pre-Wave-C bundle JSON, cast) renders the row as `n/a`
+  without throwing — backward compatibility for old exported bundles.
+- Existing render tests pass (fixtures updated by adding the now-required `handoff` field; the
+  optional-param extension of `greenBundle` defaults to the previous behavior).
 
 Test file: `packages/agora-orchestrator/test/audit/render.test.ts`.
 
@@ -358,25 +387,31 @@ plus a tamper case.
 ## Implementation
 
 ```typescript
-// test/handoff-dag.int.test.ts (NEW) — harness shape. AgoraOrchestrator + auditLog
-// (createLocalSigner + LocalAnchor, exactly as acceptance.int.test.ts wires them) + a fake
-// executor that mimics the dispatch executor's evidence behavior with REAL manifest bytes:
+// test/handoff-dag.int.test.ts (NEW) — harness shape. Mirror the REAL harness of
+// test/orchestrator-audit-export.test.ts: AgoraOrchestrator + AuditLog over NoneSigner +
+// LocalAnchor(store) (the run AUTO-SEALS on completion — orchestrator.ts:126-127 — and
+// getAuditExport(runId) is public at :190). The fake executor mimics the dispatch
+// executor's evidence behavior with REAL manifest bytes:
 const blobs = new Map<string, Uint8Array>();
 const storage = { get: async (ref: string) => { const b = blobs.get(ref); if (!b) throw new Error('missing'); return b; } };
+const firedItems = new Map<string, string>(); // dispatchHash -> ORIGINAL (denamespaced) item kind
 const handoffExec = (forgeBInputRef?: string): Executor => ({
   id: 'dispatch',
   async fire(item, ctx) {
+    const isB = !!item.needs || !!item.inputs.inputRefs; // B is the consuming node
     const rawRefs = item.inputs.inputRefs as Record<string, string> | undefined;
-    const inputRefs = forgeBInputRef && item.id.endsWith('b') ? { patch: forgeBInputRef } : rawRefs;
+    const inputRefs = forgeBInputRef && isB ? { patch: forgeBInputRef } : rawRefs;
     const { manifest, bytes } = buildManifest({ runId: ctx?.runId ?? '', itemId: item.id,
       executor: 'dispatch', executorManifest: {}, secretRefs: [], actor: ctx?.actor ?? '',
       firedAt: '2026-06-05T00:00:00.000Z', ...(inputRefs ? { inputRefs } : {}) });
-    const manifestRef = `agora://ns/manifest/${item.id}/${manifest.manifestHash}`;
+    const manifestRef = `agora://ns/manifest/m/${manifest.manifestHash}`;
     blobs.set(manifestRef, bytes);
-    return { dispatchHash: 'd-' + item.id, manifestRef };
+    const dispatchHash = 'd-' + item.id;
+    firedItems.set(dispatchHash, isB ? 'b' : 'a');   // robust id mapping — no string suffix games
+    return { dispatchHash, manifestRef };
   },
   async reconcile(h) {
-    return h === 'd-r\x1fa' || h.endsWith('a')
+    return firedItems.get(h) === 'a'
       ? { status: 'done' as const, resultRef: REF_A }
       : { status: 'done' as const };
   },
@@ -386,9 +421,9 @@ const handoffExec = (forgeBInputRef?: string): Executor => ({
 ```
 
 ```typescript
-// The two cases (drive ticks until both done — the REAL tick resolves B's inputs.inputRefs —
-// then seal the epoch, take the orchestrator's AuditExport, assembleBundle({anchor, storage}),
-// verifyBundle):
+// The two cases (drive ticks until both done — the REAL tick resolves B's inputs.inputRefs;
+// the run AUTO-seals on completion — then orch.getAuditExport(runId), assembleBundle with the
+// memory storage + the harness anchor, verifyBundle):
 it('a needs-wired run yields a bundle whose handoff check passes', async () => {
   // expect report.intact true, checks.handoff.ok true, detail '1 input ref accounted for'
   // expect the bundle's manifest for b to carry inputRefs { patch: REF_A } (sealed evidence)
@@ -454,7 +489,9 @@ typed-product-handoff entry (Waves A/B/C, PRs #39/#40/this) to `CHANGELOG.md` in
   provenance-sealed), live prerequisites (Docker, pullable worker image, ANTHROPIC_API_KEY), and the
   offline CI test — same structure as offload-fanout's README.
 - `CHANGELOG.md` gains one entry for the typed-product handoff (A: outputs seam, B: input seam +
-  validation, C: provenance-closure verification) in the file's existing format.
+  validation, C: provenance-closure verification) in the file's existing Keep-a-Changelog format:
+  under `## [Unreleased]` → `### Added`, bold-lead style matching the existing
+  "**Bundle verification (`agora verify <bundle.json>`)**" entry.
 - The example's package.json registers it in the workspace exactly like offload-fanout's.
 
 Test file: `examples/handoff-dag/test/handoff.test.ts`.
