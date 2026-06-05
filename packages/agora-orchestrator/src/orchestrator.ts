@@ -1,6 +1,6 @@
 // packages/agora-orchestrator/src/orchestrator.ts
 import type { VerifyOutcome } from '@quarry-systems/agora-core';
-import type { AuditEntryRow, AnchoredRoot, AuditExport, Executor, ItemState, Run, RunStateStore, Trigger } from './contracts/index.js';
+import type { AuditEntryRow, AnchoredRoot, AuditExport, Executor, ItemState, Run, RunStateStore, Trigger, WorkItem } from './contracts/index.js';
 import type { PackRegistry } from './packs/registry.js';
 import type { AuditLog } from './audit/audit-log.js';
 import { tick } from './engine/tick.js';
@@ -21,6 +21,7 @@ export interface AgoraOrchestratorOptions {
   queues: Record<string, QueueConfig>;
   defaultQueue?: string; // defaults to 'default'
   maxAttempts?: number; // defaults to 2 (spec §4)
+  maxItemsPerRun?: number; // defaults to 1000 (spec §5 runaway fuse)
   packs?: PackRegistry;
   auditLog?: AuditLog;
 }
@@ -42,6 +43,7 @@ export class AgoraOrchestrator {
   private readonly triggers: Record<string, Trigger>;
   private readonly defaultQueue: string;
   private readonly maxAttempts: number;
+  private readonly maxItemsPerRun: number;
   private readonly packs: PackRegistry | undefined;
   private readonly auditLog: AuditLog | undefined;
   constructor(opts: AgoraOrchestratorOptions) {
@@ -50,6 +52,7 @@ export class AgoraOrchestrator {
     this.triggers = opts.triggers;
     this.defaultQueue = opts.defaultQueue ?? 'default';
     this.maxAttempts = opts.maxAttempts ?? 2;
+    this.maxItemsPerRun = opts.maxItemsPerRun ?? 1000;
     this.packs = opts.packs;
     this.auditLog = opts.auditLog;
     if (!opts.queues[this.defaultQueue]) throw new Error(`AgoraOrchestrator: default queue '${this.defaultQueue}' not configured`);
@@ -59,6 +62,38 @@ export class AgoraOrchestrator {
     if (opts.auditLog !== undefined && typeof (opts.store as unknown as { getAuditRoot?: unknown }).getAuditRoot !== 'function') {
       throw new Error('AgoraOrchestrator: auditLog requires a store implementing AuditStore (getAuditRoot)');
     }
+  }
+
+  /** Namespace a list of WorkItems under the given runId: applies ns() to id, depends_on, and needs[*].from. */
+  private nsWorkItems(runId: string, items: WorkItem[]): WorkItem[] {
+    return items.map((it) => ({
+      ...it,
+      id: ns(runId, it.id),
+      depends_on: it.depends_on.map((d) => ns(runId, d)),
+      ...(it.needs ? {
+        needs: Object.fromEntries(
+          Object.entries(it.needs).map(([k, b]) => [k, { ...b, from: ns(runId, b.from) }]),
+        ),
+      } : {}),
+    }));
+  }
+
+  /** Convert a stored ItemState (namespaced ids) back to logical (de-namespaced) WorkItem view.
+   *  Used by extendRun to build the merged-graph view for validateRun in logical-id space. */
+  private toLogicalItem(it: ItemState): WorkItem {
+    return {
+      id: deNs(it.id),
+      executor: it.executor,
+      inputs: it.inputs,
+      depends_on: it.depends_on.map(deNs),
+      resourceLocks: it.resourceLocks,
+      ...(it.subagentShape !== undefined ? { subagentShape: it.subagentShape } : {}),
+      ...(it.needs ? {
+        needs: Object.fromEntries(
+          Object.entries(it.needs).map(([k, b]) => [k, { ...b, from: deNs(b.from) }]),
+        ),
+      } : {}),
+    };
   }
   submitRun(run: Run, actor?: string, submittedAt?: string): string {
     if (this.store.getItems(run.id).length > 0) return run.id; // already ingested — idempotent no-op
@@ -73,16 +108,7 @@ export class AgoraOrchestrator {
     // run ids are NOT namespaced; resourceLocks are NOT namespaced (cross-run locks are intentional).
     const nsRun: Run = {
       ...normalized,
-      items: normalized.items.map((it) => ({
-        ...it,
-        id: ns(run.id, it.id),
-        depends_on: it.depends_on.map((d) => ns(run.id, d)),
-        ...(it.needs ? {
-          needs: Object.fromEntries(
-            Object.entries(it.needs).map(([k, b]) => [k, { ...b, from: ns(run.id, b.from) }]),
-          ),
-        } : {}),
-      })),
+      items: this.nsWorkItems(run.id, normalized.items),
     };
     this.store.saveRun(nsRun, actor, submittedAt);
     this.store.markReady(trigger.initialReady(nsRun));
@@ -90,6 +116,44 @@ export class AgoraOrchestrator {
     try { this.auditLog?.append({ kind: 'run.submitted', runId: run.id, actor, at: new Date().toISOString() }); } catch { /* best-effort */ }
     return run.id;
   }
+
+  /** INTERNAL — the pattern layer is the sole v1 caller (spec §5). Appends items to an
+   *  EXISTING run through the audited path. Returns the logical ids actually appended.
+   *  All-or-nothing: if validation fails, the store is left unchanged. */
+  extendRun(runId: string, items: WorkItem[], actor: string, causeItemId?: string): string[] {
+    const existing = this.store.getItems(runId);
+    if (existing.length === 0) throw new Error(`extendRun: unknown run '${runId}'`);
+    const have = new Set(existing.map((i) => i.id));
+    // 1. id-skip (idempotent): drop any item whose namespaced id already exists in the store
+    const fresh = items.filter((it) => !have.has(ns(runId, it.id)));
+    if (fresh.length === 0) return [];
+    // 6. runaway fuse: reject if total would exceed maxItemsPerRun
+    if (existing.length + fresh.length > this.maxItemsPerRun) {
+      throw new Error(`extendRun: run '${runId}' would exceed maxItemsPerRun (${this.maxItemsPerRun})`);
+    }
+    // 2. normalize new items (auto-union needs[*].from into depends_on), then validate the MERGED graph
+    //    in logical-id space (de-namespaced view: existing items de-namespaced + fresh normalized items).
+    const queue = existing[0]!.queue;
+    const normalized = normalizeRun({ id: runId, queue, items: fresh }).items;
+    const merged: Run = {
+      id: runId, queue,
+      items: [...existing.map((i) => this.toLogicalItem(i)), ...normalized],
+    };
+    const errors = validateRun(merged, this.packs);
+    if (errors.length) throw new Error(`extendRun: run '${runId}' failed validation:\n${errors.join('\n')}`);
+    // 3. namespace + save via the existing saveRun (plain transactional INSERT; items.id PK backstops all-or-nothing)
+    this.store.saveRun({ id: runId, queue, items: this.nsWorkItems(runId, normalized) }, actor, new Date().toISOString());
+    // 4. audit — best-effort, names the cause item
+    try {
+      this.auditLog?.append({
+        kind: 'run.extended', runId,
+        ...(causeItemId ? { itemId: causeItemId } : {}),
+        actor, at: new Date().toISOString(),
+      });
+    } catch { /* best-effort */ }
+    return normalized.map((it) => it.id);
+  }
+
   async tick(queue?: string) {
     // Wrap each executor so the item passed to fire() carries the original (de-namespaced) id.
     // The store-internal id is namespaced; executors should only ever see the logical item id.
