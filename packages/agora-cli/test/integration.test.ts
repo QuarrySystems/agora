@@ -136,11 +136,11 @@ describe('agora-cli integration', () => {
     vi.restoreAllMocks();
   });
 
-  it('composes the full subcommand surface (capabilities, subagent, env, dispatch, deploy, orch)', () => {
+  it('composes the full subcommand surface (capabilities, subagent, env, dispatch, deploy, orch, verify)', () => {
     const fake = makeFakeClient();
     const program = buildAll(fake);
     const names = program.commands.map((c) => c.name()).sort();
-    expect(names).toEqual(['capabilities', 'deploy', 'dispatch', 'env', 'orch', 'subagent']);
+    expect(names).toEqual(['capabilities', 'deploy', 'dispatch', 'env', 'orch', 'subagent', 'verify']);
   });
 
   it('dispatch run forwards --subagent, --target, and parsed --input JSON to client.dispatch', async () => {

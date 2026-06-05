@@ -17,6 +17,7 @@ import { attachDispatchCmd } from './cmd-dispatch.js';
 import { attachDeployCmd } from './cmd-deploy.js';
 import { attachOrchCmd } from './cmd-orch.js';
 import type { OrchContext } from './cmd-orch.js';
+import { attachVerifyCmd } from './cmd-verify.js';
 
 export interface CliContext {
   /** Lazily-loaded AgoraClient instance (from agora.config.ts in cwd). */
@@ -36,6 +37,7 @@ export function buildProgram(ctx: CliContext): Command {
   attachDispatchCmd(program, ctx);
   attachDeployCmd(program, ctx);
   attachOrchCmd(program, ctx);
+  attachVerifyCmd(program, ctx);
   return program;
 }
 

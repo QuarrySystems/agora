@@ -144,3 +144,42 @@ it('signature present but no verifySignature supplied -> intact (signature check
   expect(r.intact).toBe(true);
   expect(r.failure).toBeUndefined();
 });
+
+it('clean external-immutable run: all four checks ok', async () => {
+  const store = new SqliteRunStateStore();
+  const root = seed(store, 'r');
+  const r = await verify('r', { store, anchor: anchorOf(root, 'external-immutable') });
+  expect(r.checks.chain.ok).toBe(true);
+  expect(r.checks.root.ok).toBe(true);
+  expect(r.checks.anchor.ok).toBe(true);
+  expect(r.checks.signature.ok).toBe('n/a');
+});
+
+it('tampered entry: chain check fails and names the seq; anchor still evaluated (collect-all)', async () => {
+  const store = new SqliteRunStateStore();
+  const root = seed(store, 'r2');
+  (store as any).db
+    .prepare("UPDATE audit_entries SET actor='attacker' WHERE run_id='r2' AND seq=0")
+    .run();
+  const r = await verify('r2', { store, anchor: anchorOf(root) });
+  expect(r.checks.chain.ok).toBe(false);
+  expect(r.checks.chain.detail).toContain('0');
+  expect(r.checks.anchor.ok).toBe(true);   // no early return — anchor was fetched
+  expect(r.failure).toBe('chain');         // back-compat preserved
+});
+
+it('no anchor: checks.root.ok === n/a, checks.signature.ok === n/a', async () => {
+  const store = new SqliteRunStateStore();
+  seed(store, 'r3');
+  const empty = {
+    id: 'x',
+    guarantee: 'detect' as const,
+    async anchor() { return {} as any; },
+    async fetch() { return []; },
+  };
+  const r = await verify('r3', { store, anchor: empty });
+  expect(r.checks.root.ok).toBe('n/a');
+  expect(r.checks.signature.ok).toBe('n/a');
+  expect(r.checks.anchor.ok).toBe(false);
+  expect(r.failure).toBe('anchor-missing');
+});
