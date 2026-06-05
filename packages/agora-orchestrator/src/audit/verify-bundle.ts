@@ -27,14 +27,18 @@ export function verifyBundle(
 function checkHandoffClosure(bundle: AuditBundle): CheckResult {
   const produced = new Set<string>();
   for (const it of bundle.items) {
+    if (it.status !== 'done') continue;   // only completed items are legitimate producers
     if (it.resultRef) produced.add(it.resultRef);
-    for (const ref of Object.values(it.outputRefs ?? {})) produced.add(ref);
+    for (const ref of Object.values(it.outputRefs ?? {})) {
+      if (!ref) continue;  // skip empty-string / falsy refs; not a valid content hash
+      produced.add(ref);
+    }
   }
   let edges = 0;
   for (const m of bundle.manifests) {
     for (const [key, ref] of Object.entries(m.inputRefs ?? {})) {
       edges++;
-      if (!produced.has(ref)) {
+      if (!ref || !produced.has(ref)) {
         return {
           ok: false,
           detail: `item ${m.itemId} input ${key}: ${ref} not produced by any item in this run`,

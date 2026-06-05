@@ -67,6 +67,8 @@ function buildSealedBundle(runId: string = 'r'): { bundle: AuditBundle; root: Ui
   return { bundle, root };
 }
 
+// Note: pre-populated report satisfies AuditBundle's type only; verifyBundle recomputes it.
+
 /** Build a minimal DispatchManifest with optional inputRefs. */
 function manifestFor(itemId: string, inputRefs: Record<string, string> = {}): DispatchManifest {
   return {
@@ -260,4 +262,29 @@ it('handoff failure cannot yield tamper-evident claim', async () => {
   const r = await verifyBundle(bundle, { anchor: anchorOf(root) });
   // claim must be tamper-detecting (never tamper-evident) because intact is false
   expect(r.claim).toBe('tamper-detecting');
+});
+
+it('a failed item resultRef does NOT satisfy the handoff closure (adversarial injection)', async () => {
+  // A malicious/buggy bundle carries an item with status "failed" whose resultRef matches
+  // a manifest inputRef. The closure check must reject it — failed items are not legitimate producers.
+  const { bundle, root } = buildSealedBundle('r');
+  bundle.items = [{ id: 'a', status: 'failed', resultRef: REF_A }]; // failed, not done
+  bundle.manifests = [manifestFor('b', { patch: REF_A })];
+  const r = await verifyBundle(bundle, { anchor: anchorOf(root) });
+  expect(r.checks.handoff.ok).toBe(false);
+  expect(r.intact).toBe(false);
+  expect(r.failure).toBe('handoff');
+});
+
+it('empty-string outputRef is not a valid producer (falsy ref guard)', async () => {
+  // An empty-string ref is not a valid content hash and must not satisfy a manifest inputRef.
+  const EMPTY = '';
+  const { bundle, root } = buildSealedBundle('r');
+  bundle.items = [{ id: 'a', status: 'done', outputRefs: { 'data.bin': EMPTY } }];
+  bundle.manifests = [manifestFor('b', { data: EMPTY })];
+  const r = await verifyBundle(bundle, { anchor: anchorOf(root) });
+  // An empty inputRef is itself invalid — bundle must fail closure.
+  expect(r.checks.handoff.ok).toBe(false);
+  expect(r.intact).toBe(false);
+  expect(r.failure).toBe('handoff');
 });
