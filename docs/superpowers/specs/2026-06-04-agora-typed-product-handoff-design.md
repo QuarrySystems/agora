@@ -171,26 +171,39 @@ type OutputSelector =
   into `depends_on`. The engine's readiness logic (`dep-resolver.computeNewlyReady`) is **untouched**,
   and it is impossible to wire a need without its dependency. `needs` is the only edge representation;
   there is no separate edge list on `Run`.
-- Persisted as a `needs TEXT` JSON column alongside `depends_on` in `runstate/sqlite.ts`; round-tripped
-  in `rowToItem`.
+- `InputBinding`/`OutputSelector` are declared in `contracts/types.ts` next to `WorkItem` (same module
+  the type extends), per the repo's contract-colocation convention.
+- Persisted following the **exact #37 column pattern** in `runstate/sqlite.ts`: append `['needs','TEXT']`
+  to the idempotent `MIGRATIONS` array (never hand-edit `CREATE TABLE`), add `needs` to `ItemRow`, write
+  it in the `saveRun` INSERT (it is *submitted* data, like `depends_on`), and `JSON.parse` it in
+  `rowToItem`. No new persistence style is introduced.
 
 ## 4. Resolve-at-fire — the engine mechanism (no store mutation)
 
-In `tick.ts`, insert resolution in the fire path **immediately before `inputSchema` validation**
-(`tick.ts:82-98`). Resolution reads the store (upstream products), so it must live in `tick`, not the
-executor (the executor has the client, not the store):
+**SoC: resolution is a PURE helper, not inlined into `tick`.** The repo keeps `tick` a thin orchestrator
+that delegates each decision to a pure, IO-free function in `engine/*` (`computeNewlyReady` in
+`dep-resolver.ts`, `selectRunnable` in `lock-manager.ts`, `effectTierPolicy` in `effect-policy.ts` — each
+takes already-fetched `ItemState[]` and returns a decision; `tick` applies it to the store). The handoff
+resolver follows that pattern exactly: a new `engine/needs-resolver.ts` exporting
 
 ```
-// resolve needs into a transient item; the SUBMITTED it.inputs is never written back
-const inputRefs: Record<string,string> = {};
-for (const [key, binding] of Object.entries(it.needs ?? {})) {
-  const upstream = byId(store.getItems())[binding.from];   // 'done' guaranteed by depends_on
-  inputRefs[key] = selectProductRef(upstream, binding.select); // upstream.resultRef OR upstream.outputRefs[path]
-}
-// reserved carrier key — NOT FireContext (which is guarded "no dispatch concepts"):
-const resolved = { ...it, inputs: { ...it.inputs, inputRefs } };
-// existing validation, now over the resolved value:
-if (it.subagentShape) shape.inputSchema.safeParse(resolved.inputs)  // fail -> setStatus('failed', ...)
+// PURE — no store/IO; mirrors dep-resolver/lock-manager. tick passes the items it already fetched.
+export function resolveInputRefs(
+  item: ItemState,
+  byId: Map<string, ItemState>,
+): { inputRefs: Record<string,string> } | { error: string }
+
+export function selectProductRef(upstream: ItemState, sel: OutputSelector): string | undefined
+```
+
+`tick.ts`, in the fire path **immediately before `inputSchema` validation** (`tick.ts:82-98`), calls it
+and applies the result — keeping the same orchestrate-here / decide-there split as the existing helpers:
+
+```
+const r = resolveInputRefs(it, byId);                 // pure; reads no store
+if ('error' in r) { store.setStatus(it.id, 'failed', r.error); store.releaseLocks(it.id); continue; }
+const resolved = { ...it, inputs: { ...it.inputs, inputRefs: r.inputRefs } }; // reserved carrier key
+if (it.subagentShape) shape.inputSchema.safeParse(resolved.inputs)  // existing validation, now over resolved
 if (!store.acquireLocks(it.id, it.resourceLocks)) continue;
 await ex.fire(resolved, { runId: it.runId, actor: it.actor, submittedAt: it.submittedAt }); // ctx UNCHANGED
 ```
@@ -202,9 +215,9 @@ await ex.fire(resolved, { runId: it.runId, actor: it.actor, submittedAt: it.subm
 - **Refs are sha256 content hashes**, so "resolved to ref X" *is* "resolved to content X."
 - `selectProductRef`:
   - `{ kind: 'patch' }` → `upstream.resultRef` (existing).
-  - `{ kind: 'output', path }` → `upstream.outputRefs[path]` (new store field, §5).
-  - Missing product → `setStatus(downstream, 'failed', 'unresolved needs <key>')` (defensive; the
-    submit-time edge check in §7 should already have caught structural mis-wiring).
+  - `{ kind: 'output', path }` → `upstream.outputRefs[path]` (new store field, below).
+  - Missing product → `resolveInputRefs` returns `{ error: 'unresolved needs <key>' }`; `tick` fails the
+    item (defensive — the submit-time validator in §6 should already have caught structural mis-wiring).
 
 **Contract changes (none to `FireContext` or the `Executor` signature)**
 - Resolved refs travel under reserved `item.inputs.inputRefs` (key → content-addressed URI). The
@@ -213,35 +226,51 @@ await ex.fire(resolved, { runId: it.runId, actor: it.actor, submittedAt: it.subm
   *and* into the manifest (§7). The ref values are also surfaced into the worker's input JSON
   (`item.inputs.workerInput`) so the prompt can name them.
 
-**One store addition (write-on-completion, exact mirror of #37's `setVerify`)**
-- `RunStateStore.setOutputRefs(itemId, map: Record<string,string>)` + an `output_refs TEXT` JSON column
-  (the `verify` column from #37 is the template). Written by reconcile alongside `setResultRef`/`setVerify`
-  — the same write-back path, **not** a pending-item mutation.
-- `ItemState` gains `outputRefs?: Record<string,string>` (alongside the existing `resultRef`/`verify`).
+**One store addition (write-on-completion, exact mirror of #37's `setVerify` — field-for-field)**
+- `RunStateStore.setOutputRefs(itemId, map)` (beside `setVerify`), `ItemState.outputRefs?` (beside
+  `verify`), `ItemRow.output_refs`, `['output_refs','TEXT']` appended to `MIGRATIONS`, `NULL` in the
+  `saveRun` INSERT (set on completion, not submitted), setter does `JSON.stringify`, `rowToItem` does
+  `JSON.parse`. This is the #37 `verify` column pattern verbatim — no new persistence style.
 
 ## 5. Worker — `inputs/` overlay in, `outputs/` capture out
 
-### Input side (reuse `overlay-engine` verbatim)
+### Input side (DRY: no new stager — input refs are already-pinned products)
 
-- `DispatchWork` gains `inputRefs?: Record<string,string>` (key → content-addressed URI). **Not**
-  `resources` (that is `{cpu,memory}`).
-- `bundle-fetcher` gains an input fetch: `storage.get(ref)` + `verifyContentHash(bytes, hash)`
-  (integrity-on-read for free), returned as a new `FetchedBundles.inputs: FetchedInput[]`
-  (`{ key, bytes, contentHash }`).
-- `entrypoint.ts` Step 6: after the capability overlay, a **second `overlayCapabilities` pass** with
-  bundles shaped `{ name: 'inputs', files: { 'inputs/<key>': bytes } }`. Materializes at
-  `workspace/inputs/<key>`. `AGORA_INPUT_JSON` still carries the ref URIs as values so the prompt
-  can name them.
-- **Consumption ≠ materialization.** The seam *materializes the bytes at `inputs/<key>`*. Whether dev
-  then `git apply`s `inputs/patch.diff` is a **pack/setup concern** (`agora-setup.sh`), not the generic
-  seam — the "don't over-fit to git" discipline; the seam serves dev and data identically.
+The key simplification the audit surfaced: an input ref is an **upstream product that already lives in
+storage** at its pinned `agora://…/<hash>` URI (a `resultRef`/`outputRef`). There is therefore **no
+registration, no `serializeCapabilityBundle`, no credential scan, no new content-addressing path** for
+inputs — those exist for *user-supplied* capability files; handoff inputs are internal, already-sealed,
+already-scanned artifacts. Staging is pure pass-through of existing refs.
+
+- `DispatchWork` gains `inputRefs?: Record<string,string>` (key → already-pinned URI). **Not** `resources`
+  (that is `{cpu,memory}`).
+- **Single staging channel (reuse, not a new env var).** The client assembles refs once into the existing
+  `bundleRefs` object and ships them in `AGORA_BUNDLE_REFS_JSON` (the established channel for
+  subagent/capabilities/env — `dispatch.ts`), adding `bundleRefs.inputs: Array<{ key, uri, contentHash }>`.
+  `InFlightDispatch.resolved` (assembled in one place) gains `inputRefs` for the manifest (§7).
+- **`bundle-fetcher` (DRY).** It currently fetches subagent/capabilities/envs as three near-duplicate
+  fetch+verify blocks; the inputs fetch is a fourth. To avoid extending that duplication, factor a small
+  shared `fetchVerified(uri, contentHash) → bytes` helper and route the new inputs fetch through it
+  (optionally fold the existing three — same file, low-risk, in-scope). Returns
+  `FetchedBundles.inputs: Array<{ key, bytes }>`.
+- **Overlay (reuse, single pass).** `overlay-engine.overlayCapabilities` is already generic ({name,files},
+  path-based merge) — the audit confirms it is content-source-agnostic. Build one `inputs` bundle
+  `{ name:'inputs', files: { 'inputs/<key>': bytes } }` and pass it **in the same overlay call** alongside
+  the capability bundles (their path namespaces don't overlap, so order is irrelevant) — one
+  materialization pass, no second code path. (Optional honesty rename `overlayCapabilities → overlayBundles`
+  since it already serves >1 bundle kind; deferrable to avoid call-site churn.)
+- The ref URIs are also surfaced in the worker input JSON (`AGORA_INPUT_JSON`) so the prompt can name them.
+- **Consumption ≠ materialization.** The seam *materializes the bytes at `inputs/<key>`*. Whether dev then
+  `git apply`s `inputs/patch.diff` is a **pack/setup concern** (`agora-setup.sh`), not the generic seam —
+  the "don't over-fit to git" discipline; the seam serves dev and data identically.
 
 ### Output side (the "go large" addition) — mirrors #37's `verify?` plumbing
 
 - **Capture sequence** (slots into #37's `capturePatch` + `writeSentinel` split):
-  `capturePatch → self-verify (Gap A) → captureOutputs → writeSentinel`. `captureOutputs` walks
-  `workspace/outputs/`: per file `computeContentHash → buildAgoraUri({ type: 'artifact', ... }) →
-  storage.put`, collecting `{ path, ref }`.
+  `capturePatch → self-verify (Gap A) → captureOutputs → writeSentinel`. `captureOutputs` is a new
+  `output-sentinel.ts` sibling of `capturePatch` that reuses the **same core primitives** (`computeContentHash`
+  → `buildAgoraUri({ type:'artifact', … })` → `storage.put`) — no new content-addressing path; it just
+  walks `workspace/outputs/` and collects `{ path, ref }`.
 - **Patch must exclude `outputs/`.** `patch-capture.computeWorkspacePatch` currently excludes only
   `.agora` (`:(exclude).agora`); add `:(exclude)outputs` so deliberate deliverables never pollute the
   code diff (the same reason #37 captures the patch before post-edit steps).
@@ -257,22 +286,31 @@ await ex.fire(resolved, { runId: it.runId, actor: it.actor, submittedAt: it.subm
 
 ## 6. Edge-type validation — at submit, fail-fast
 
-`operations-api.submit` validates nothing today (lazy at fire). Add a **submit-time edge check**
-(also the `agora pipeline validate` CLI surface) — "before anything runs". Two deliberate layers:
+`operations-api.submit` validates nothing today; validation is scattered (`validateShape` at
+`PackRegistry` construction, `inputSchema.safeParse` per-item in `tick`). Rather than add a third ad-hoc
+site, introduce **one pure validator, two callers** (DRY):
 
-- **(a) submit-time edge-type-tag compatibility.** Each typed product carries an edge-type **tag**
-  (`patch-ref`; later `dataset-ref`, `doc-ref`). An edge `A.select → B.needs[key]` is valid iff the
-  upstream product's tag matches the downstream's expected-input tag. Fast, whole-DAG, fails the
-  submission before any task fires. Also validates: `from` references an existing item; the selected
-  product exists on the upstream shape's declared outputs; `needs ⊆ depends_on` (post-normalization).
-- **(b) fire-time `inputSchema.safeParse`** on the resolved value — already exists, unchanged; the
-  structural check on the actual resolved bytes.
+- **`engine/run-validator.ts`** (new, parallel to `dep-resolver.ts`) exporting a pure
+  `validateRun(run, packs?) → string[]` (error list, empty = valid). Exported from the orchestrator barrel
+  (`index.ts`) so the CLI reuses it — the established orchestrator↔CLI sharing path.
+- **Two callers:** `operations-api.submit` calls it and **rejects** on errors (the chokepoint — "before
+  anything runs"); a new CLI **`agora orch validate <plan.json>`** (sibling of the existing
+  `agora orch submit` in `cmd-orch.ts`) calls the same function for pre-flight. Note: the repo CLI
+  namespace is `agora orch`, not the concept page's `agora pipeline`.
+- **What `validateRun` checks (layer a — submit-time, whole-DAG, fail-fast):** edge-type-**tag**
+  compatibility (each typed product carries an `edgeType` tag — `patch-ref`; later `dataset-ref`,
+  `doc-ref` — an edge `A.select → B.needs[key]` is valid iff the tags match); `needs[*].from` references an
+  existing item; the selected product is declared on the upstream shape; `needs ⊆ depends_on`
+  (post-normalization); plus existing run-shape checks (duplicate ids, unknown shape).
+- **Layer b — fire-time `inputSchema.safeParse`** on the resolved value stays exactly as-is (different
+  responsibility: structural check on the actual resolved bytes, not the wiring). Two layers, two clear
+  owners — no overlap.
 
-Deep zod *structural* subsetting is intentionally **not** used: it is brittle and is not what lets
-heterogeneous pipelines coexist — tag-matching is (it is literally "edge-type compatibility"). Dev v1
-is the degenerate `patch-ref → patch-ref` case. A tag mismatch → submission rejected with a clear
-`edge A→B: X→Y incompatible; needs an adapter block`. **Building** adapter blocks is deferred; naming
-the gap precisely is v1.
+Tag mismatch → a precise error (`edge A→B: patch-ref→dataset-ref incompatible; needs an adapter block`);
+**building** adapter blocks is deferred, naming the gap is v1. Deep zod *structural* subsetting is
+intentionally **not** used: it is brittle and is not what lets heterogeneous pipelines coexist —
+tag-matching is (literally "edge-type compatibility"). Dev v1 is the degenerate `patch-ref → patch-ref`
+case; `edgeType` is a lightweight tag added to the shape's declared products (one tag, `patch-ref`, in v1).
 
 Tags are sourced from a lightweight `edgeType` annotation on the shape's declared products (additive
 to `SubagentShape`); with only the dev pack, the sole tag is `patch-ref`.
@@ -325,8 +363,8 @@ row after `anchor`. `intact` is extended to include `handoff !== false`.
   overlay (reuse `overlay-engine`).
 - Worker: `outputs/` capture (`captureOutputs`, patch excludes `outputs/`) → `OutputSentinel.outputs[]`
   → `readSentinel` → `ExecutionResult.outputRefs` → `setOutputRefs`.
-- Submit-time edge-type-tag validation (`operations-api` + `agora pipeline validate`); `edgeType` tag
-  on shapes.
+- One pure `validateRun` (`engine/run-validator.ts`) called by both `operations-api.submit` and a new
+  `agora orch validate` CLI; `edgeType` tag on shapes.
 - Manifest `inputRefs` sealed (additive, hash-safe); `outputRefs` in `AuditItemOutcome`.
 - `verifyBundle()` provenance-closure `handoff` check + `VerificationReport.checks.handoff` + render row.
 - **Demonstrated by the dependent-edit dev DAG**: `dev.code-edit (A) → dev.code-edit (B)` where B binds
@@ -355,3 +393,33 @@ row after `anchor`. `intact` is extended to include `handoff !== false`.
   ever needed, bump to `2` then.
 - **Whole bet is dogfood-unvalidated** until a non-dev pack exercises the output seam — consistent with
   the medium confidence on the parent decisions.
+
+## 10. Conformance to repo patterns & engineering principles
+
+Audited against the live tree (esp. #37 as the canonical end-to-end pattern). Every addition rides an
+existing pattern; nothing introduces a parallel style.
+
+| Concern | Repo pattern followed | Where |
+|---|---|---|
+| New optional signal end-to-end | #37 `verify` template, field-for-field (core type → sentinel additive field → defensive `readSentinel` → `ExecutionResult`/`ItemState` → `setX` → one guarded `tick` line) | `outputRefs` (§5), `inputRefs` (§7) |
+| SQLite column add | Idempotent `MIGRATIONS` array + `ItemRow` + INSERT + `rowToItem` round-trip (never hand-edit `CREATE TABLE`) | `needs`, `output_refs` (§3/§4) |
+| Engine SoC | `tick` orchestrates; pure IO-free decision helper per concern in `engine/*` (`dep-resolver`, `lock-manager`, `effect-policy`) | new `engine/needs-resolver.ts` (§4) |
+| Content-addressing | Reuse core primitives `computeContentHash`/`buildAgoraUri`/`storage.put`/`verifyContentHash` (as `capturePatch` does) | `captureOutputs` (§5) |
+| Per-dispatch staging | Single `AGORA_BUNDLE_REFS_JSON` channel + one-place `InFlightDispatch.resolved` assembly | `bundleRefs.inputs` (§5) |
+| Overlay | `overlayCapabilities` is already generic + path-based; one pass, no second code path | inputs overlay (§5) |
+| Validation | One pure validator, two callers (submit + CLI), exported from the barrel | `validateRun` (§6) |
+
+**DRY wins baked in:** (1) input refs are already-pinned upstream products → **no** new stager/serializer/
+credential-scan (the capabilities-register machinery is for *user-supplied* files, not internal sealed
+artifacts); (2) a shared `fetchVerified` helper absorbs the new inputs fetch instead of adding a 4th
+near-duplicate block in `bundle-fetcher`; (3) `validateRun` replaces a third ad-hoc validation site with a
+single shared function.
+
+**Single-responsibility / SoC:** resolution (pure helper) ≠ orchestration (`tick`) ≠ execution
+(`DispatchExecutor`) ≠ persistence (store) ≠ materialization (worker overlay) ≠ wiring-validation
+(`validateRun`) ≠ structural-validation (`inputSchema.safeParse`) ≠ seal (`writeSentinel`/manifest). Each
+addition lands in exactly one of these and touches no other's concern.
+
+**Two optional, in-scope refactors** (flagged, not required): fold `bundle-fetcher`'s existing three fetch
+blocks onto `fetchVerified`; rename `overlayCapabilities → overlayBundles` for honesty. Both are local and
+deferrable; neither is unrelated refactoring.
