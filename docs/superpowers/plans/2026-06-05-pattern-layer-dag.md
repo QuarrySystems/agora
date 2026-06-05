@@ -77,6 +77,16 @@ Consumer-grep results (authoring-time): `AuditEntryKind` has no exhaustive-list 
 assertions (additive member is safe); `QueueConfig` is consumed only by `src/index.ts` +
 `src/orchestrator.ts` (additive optional field is safe); barrel tests assert presence only
 (`test/barrel-surface.test.ts` style) — the new barrel task adds its own surface test file.
+`PRIVILEGE` (`contracts/privilege.ts`) DOES have an exhaustive-membership test — extendRun
+deliberately gets no entry (see task-extend-run's boundaries).
+
+**Post-landing (controller checklist, not DAG tasks):** (1) update the vault pages per spec §1
+— record the `onTaskDone → {route, ready, spawn}` → `{spawn?}` supersession on
+`concept-execution-pattern` / `decision-2026-06-04-execution-patterns-are-queue-level`, add
+`implementation:` + Shipped notes to `concept-execution-pattern` and
+`synthesis-composable-execution-model`; (2) PR sizing is an execution-time choice — the
+handoff precedent was wave-sized PRs (a natural split here: contract/harness/patterns/seam →
+PR1; wiring/tests/barrel/examples → PR2), but tasks are individually review-gated either way.
 
 ## Tasks
 
@@ -681,6 +691,19 @@ The audited append seam (spec §5): a public-but-documented-internal `extendRun`
 verbatim (plain transactional INSERT) — zero `RunStateStore` change. Adds the
 `maxItemsPerRun` option (default 1000).
 
+Two explicit boundaries:
+
+- **Do NOT touch `contracts/privilege.ts`.** `PRIVILEGE` is the registry of client/operator
+  *operation surfaces* and `test/privilege.test.ts` asserts its exact membership. extendRun is
+  not an operation surface (internal-only v1; external extend is deferred per spec §9) — no
+  entry, no test change.
+- **DRY the namespacing (shared private helpers, reused by task-pattern-phase).** submitRun
+  already maps items through `ns()` (id, `depends_on`, `needs[*].from` — orchestrator.ts:74-86);
+  factor that into a private `nsWorkItems(runId, items)` used by BOTH submitRun and extendRun,
+  and a private `toLogicalItem(it)` inverse (full deNs of id/depends_on/needs.from) used by
+  extendRun's merged-graph view — task-pattern-phase reuses it for the scan view (the two
+  tasks serialize on this file).
+
 ## Implementation
 
 ```typescript
@@ -744,6 +767,10 @@ it('re-appending the same item ids is a no-op (id-skip idempotency)', () => {
 - A successful append emits exactly one `'run.extended'` audit entry carrying `runId`,
   `actor`, and the `causeItemId` when given; `contracts/audit.ts` compiles with the new kind.
 - `extendRun` on an unknown runId throws.
+- `contracts/privilege.ts` and `test/privilege.test.ts` are untouched (exhaustive-membership
+  test stays green).
+- submitRun's namespacing is factored into the shared `nsWorkItems` helper (no duplicated
+  ns-mapping between submitRun and extendRun); existing orchestrator tests stay green.
 - Zero diffs under `src/engine/` (spec invariant).
 
 Test file: `packages/agora-orchestrator/test/extend-run.test.ts`.
@@ -786,7 +813,7 @@ private applyPatternPhase(q: string): void {
   for (const it of queueItems) { (byRun.get(it.runId) ?? byRun.set(it.runId, []).get(it.runId)!).push(it); }
   for (const [runId, items] of byRun) {
     if (this.auditLog && (this.store as unknown as { getAuditRoot(e: string): unknown }).getAuditRoot(runId) !== undefined) continue;  // sealed
-    const view = items.map(toLogicalItemState);           // deNs id, depends_on, needs.from
+    const view = items.map(toLogicalItem);   // the shared deNs helper task-extend-run factored
     for (const spawn of collectSpawns(view, pattern)) {
       try { this.extendRun(runId, spawn.items, `pattern:${q}`, spawn.causeItemId); }
       catch { /* spawn failure must not abort the tick; run is unharmed (spec §5.2) */ }
@@ -994,21 +1021,24 @@ files:
   - examples/pattern-mapreduce/README.md
   - examples/pattern-mapreduce/package.json
   - examples/pattern-mapreduce/plan.json
-  - examples/pattern-mapreduce/run.mjs
+  - examples/pattern-mapreduce/src/index.ts
 status: pending
 is_wiring_task: true
 model_hint: cheap
 ```
 
-User-facing runnable demo of N-unknown fan-out (spec §9), sibling of `examples/handoff-dag`:
-`plan.json` holds the splitter-only run (with `inputs.mapReduce` templates); `run.mjs` builds
-an in-memory orchestrator with a fake executor + the `mapReduce` pattern from
-`@quarry-systems/agora-orchestrator`, drives it to seal, prints the final item tree, the
-`'run.extended'` audit entries, and the `verifyBundle` provenance-closure result; exits 0 on
-intact. README explains what to look at and why no credits/workers are needed.
+User-facing runnable demo of N-unknown fan-out (spec §9), sibling of `examples/handoff-dag`
+and following its workspace template exactly (`pnpm-workspace.yaml` already globs
+`examples/*`): private `package.json` with `"@quarry-systems/agora-orchestrator":
+"workspace:*"`, tsx + typescript devDeps, `start`/`typecheck`/`build` scripts, BUSL-1.1.
+`plan.json` holds the splitter-only run (with `inputs.mapReduce` templates); `src/index.ts`
+builds an in-memory orchestrator with a fake executor + the `mapReduce` pattern, drives it to
+seal, prints the final item tree, the `'run.extended'` audit entries, and the `verifyBundle`
+provenance-closure result; exits 0 on intact. README explains what to look at and why no
+credits/workers are needed.
 
-```javascript
-// examples/pattern-mapreduce/run.mjs — shape
+```typescript
+// examples/pattern-mapreduce/src/index.ts — shape
 import { AgoraOrchestrator, ManualTrigger, SqliteRunStateStore, AuditLog, NoneSigner,
          LocalAnchor, mapReduce, assembleBundle, verifyBundle, buildManifest } from '@quarry-systems/agora-orchestrator';
 // fake executor as in the int test; queues: { default: { concurrency: 5, pattern: mapReduce } }
@@ -1016,14 +1046,16 @@ import { AgoraOrchestrator, ManualTrigger, SqliteRunStateStore, AuditLog, NoneSi
 
 ## Acceptance criteria
 
-- `node run.mjs` (after workspace install/build) exits 0, printing: the grown item list
+- `pnpm start` (after workspace install/build) exits 0, printing: the grown item list
   (splitter + N maps + reduce, all done), the `run.extended` entries, and
   `handoff: ok — N input refs accounted for` from the verification report.
+- `pnpm typecheck` passes; `package.json` mirrors the handoff-dag template (private,
+  `workspace:*` dep, no `test` script — behavior is covered by the orchestrator int test).
 - `plan.json` submits ONLY the splitter item — the printed tree visibly contains items that
   were not in the plan (the demo's point).
 - README states the offline/fake-executor posture and links the spec.
 
-Test file: none — verified by running `node run.mjs` (exit 0); behavior is covered by
+Test file: none — verified by running `pnpm start` (exit 0); behavior is covered by
 `packages/agora-orchestrator/test/pattern-mapreduce.int.test.ts`.
 
 ## Task: runnable dogfood example
@@ -1035,25 +1067,28 @@ files:
   - examples/pattern-dogfood/README.md
   - examples/pattern-dogfood/package.json
   - examples/pattern-dogfood/plan.json
-  - examples/pattern-dogfood/run.mjs
+  - examples/pattern-dogfood/src/index.ts
 status: pending
 is_wiring_task: true
 model_hint: cheap
 ```
 
 User-facing runnable demo of the gated DAG-plan shape (spec §9 — the zero-credit dogfood
-loop): `plan.json` holds `[implement, review(gate), package]` with `inputs.gate` on review;
-`run.mjs` uses the `pipeline` pattern and an id-keyed fake executor (`review` red, `review~2`
-green), drives to seal, prints the before/after graph (original failed branch + respawned
-`~2` lineage) and the provenance-closure verdict; exits 0 on intact.
+loop), following the handoff-dag workspace template (private `package.json`, `workspace:*`
+dep on the orchestrator, tsx, `start`/`typecheck`/`build` scripts, BUSL-1.1): `plan.json`
+holds `[implement, review(gate), package]` with `inputs.gate` on review; `src/index.ts` uses
+the `pipeline` pattern and an id-keyed fake executor (`review` red, `review~2` green), drives
+to seal, prints the before/after graph (original failed branch + respawned `~2` lineage) and
+the provenance-closure verdict; exits 0 on intact.
 
 ## Acceptance criteria
 
-- `node run.mjs` exits 0; output shows `review: failed`, `package: skipped`,
+- `pnpm start` exits 0; output shows `review: failed`, `package: skipped`,
   `review-fix-1/review~2/package~2: done`, one `run.extended` entry citing `review`, and a
   green verification report.
+- `pnpm typecheck` passes; `package.json` mirrors the handoff-dag template.
 - README explains the circle-back-as-spawn model (new forward arc, never a cycle; failed
   branch preserved as sealed history) and links the spec.
 
-Test file: none — verified by running `node run.mjs` (exit 0); behavior is covered by
+Test file: none — verified by running `pnpm start` (exit 0); behavior is covered by
 `packages/agora-orchestrator/test/pattern-dogfood.int.test.ts`.
