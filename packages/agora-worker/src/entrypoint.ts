@@ -280,9 +280,21 @@ export async function runWorker(
         files: unpackBundle(c.bytes),
       }),
     );
+    // Include input bundles in the same overlay call so they land before
+    // captureBaseline (and therefore before the adapter runs). One pass,
+    // no separate code path (spec §5 step 6).
+    const overlayBundles = [...capabilityBundles];
+    if (bundles.inputs.length > 0) {
+      overlayBundles.push({
+        name: 'inputs',
+        files: Object.fromEntries(
+          bundles.inputs.map((i) => [`inputs/${i.key}`, i.bytes]),
+        ),
+      });
+    }
     await overlayCapabilities({
       workspaceDir,
-      bundles: capabilityBundles,
+      bundles: overlayBundles,
       adapter,
     });
   } catch (err) {

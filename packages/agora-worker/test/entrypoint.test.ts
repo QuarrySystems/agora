@@ -115,6 +115,12 @@ async function setupHarness(opts?: {
   verify?: { command: string; timeout?: number };
   /** Called inside the stub adapter's invoke(), after incrementing the counter. */
   onInvoke?: (spec: RuntimeInvocation) => Promise<void>;
+  /**
+   * Input blobs to seed: each entry is stored in FakeStorage and added to
+   * bundleRefs.inputs. `hashCorrect` defaults to true; set false to simulate
+   * a tampered input (hash mismatch -> integrity-failed).
+   */
+  inputs?: Array<{ key: string; bytes: Uint8Array; hashCorrect?: boolean }>;
 }): Promise<Harness> {
   const workDir = await mkdtemp(join(tmpdir(), 'entrypoint-work-'));
   const adaptersRoot = await mkdtemp(join(tmpdir(), 'entrypoint-adapters-'));
@@ -153,7 +159,21 @@ async function setupHarness(opts?: {
   storage.set(subagentUri, asJsonBytes(subagentDef));
   storage.set(capUri, capBytes);
 
-  const bundleRefs = {
+  const inputRefs: Array<{ key: string; uri: string; contentHash: string }> = [];
+  if (opts?.inputs) {
+    for (const inp of opts.inputs) {
+      const inputUri = `agora://ns/input/${inp.key}/sha256:${inp.key}`;
+      const correctHash = computeContentHash(inp.bytes);
+      storage.set(inputUri, inp.bytes);
+      inputRefs.push({
+        key: inp.key,
+        uri: inputUri,
+        contentHash: inp.hashCorrect === false ? 'sha256:tampered' : correctHash,
+      });
+    }
+  }
+
+  const bundleRefs: Record<string, unknown> = {
     subagent: { uri: subagentUri, contentHash: subagentHash },
     capabilities: [
       {
@@ -165,6 +185,7 @@ async function setupHarness(opts?: {
       },
     ],
     env: [],
+    ...(inputRefs.length > 0 ? { inputs: inputRefs } : {}),
   };
 
   const env: Record<string, string> = {
@@ -657,5 +678,61 @@ describe('runWorker', () => {
     const sentinelUri = buildDispatchRecordUri('ns', 'd-1', 'output.json');
     const parsed = JSON.parse(new TextDecoder().decode(await h.storage.get(sentinelUri)));
     expect(parsed.outputs).toBeUndefined();
+  });
+
+  it('materializes input refs at workspace/inputs/<key> before the adapter runs', async () => {
+    const inputBytes = new TextEncoder().encode('diff --git a/x b/x');
+    const h = await setupHarness({
+      inputs: [{ key: 'patch.diff', bytes: inputBytes }],
+      onInvoke: async (spec) => {
+        const staged = await readFile(join(spec.workspaceDir, 'inputs', 'patch.diff'), 'utf8');
+        if (!staged.startsWith('diff --git')) throw new Error('input not materialized before invoke');
+      },
+    });
+    cleanupDirs.push(h.workDir, h.adaptersRoot);
+    expect(await runWorker(h.env, makeDeps(h))).toBe(0);
+  });
+
+  it('integrity failure: tampered input must NOT have the adapter invoked', async () => {
+    const h = await setupHarness({
+      inputs: [{ key: 'patch.diff', bytes: new TextEncoder().encode('hello'), hashCorrect: false }],
+    });
+    cleanupDirs.push(h.workDir, h.adaptersRoot);
+
+    const code = await runWorker(h.env, makeDeps(h));
+
+    expect(code).not.toBe(0);
+    const failed = h.events.find((e) => e.kind === 'dispatch.failed');
+    expect(failed).toBeDefined();
+    expect(failed && 'reason' in failed && failed.reason).toBe('integrity-failed');
+    expect(h.invokeCalls).toBe(0);
+  });
+
+  it('materialized input does not appear in the workspace patch (baseline captured after overlay)', async () => {
+    const inputBytes = new TextEncoder().encode('diff --git a/x b/x\n');
+    const h = await setupHarness({
+      inputs: [{ key: 'patch.diff', bytes: inputBytes }],
+    });
+    cleanupDirs.push(h.workDir, h.adaptersRoot);
+    h.setRuntimeExit({ exitCode: 0, stdout: '', stderr: '' });
+
+    const code = await runWorker(h.env, makeDeps(h));
+    expect(code).toBe(0);
+
+    // The sentinel is written after captureBaseline (which runs post-overlay).
+    // If captureBaseline includes inputs/ in the tracked tree, the adapter
+    // (which did NOT modify inputs/patch.diff) would show no diff for it.
+    // The key assertion: patchRef should either be absent or, if present, its
+    // content should not reference the input key as a change.
+    const sentinelUri = buildDispatchRecordUri('ns', 'd-1', 'output.json');
+    if (h.storage.has(sentinelUri)) {
+      const parsed = JSON.parse(new TextDecoder().decode(await h.storage.get(sentinelUri)));
+      // If a patch was generated, it must not contain the input file as a changed file.
+      if (parsed.patchRef) {
+        const patchBytes = await h.storage.get(parsed.patchRef);
+        const patchText = new TextDecoder().decode(patchBytes);
+        expect(patchText).not.toContain('inputs/patch.diff');
+      }
+    }
   });
 });
