@@ -17,6 +17,10 @@ export interface DispatchManifest {
   secretRefs: string[];      // REFERENCES ONLY — never values (all executors)
   actor: string;             // "human:<id>" | "agent:<id>"
   submittedAt?: string;      // ISO-8601, when the run was submitted (if known)
+  /** Typed-product handoff (spec §7): input key -> already-pinned agora:// URI of the
+   *  upstream product this dispatch consumed. Sealed at fire; absent when the item
+   *  has no needs. REFERENCES only — refs are sha256 content hashes. */
+  inputRefs?: Record<string, string>;
   firedAt: string;           // ISO-8601, when this item was fired
   manifestHash: string;      // sha256:<hex> self-hash over all fields above
   signature?: ManifestSignature; // offload-audit; omitted in offload-escape

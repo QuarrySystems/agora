@@ -60,7 +60,67 @@ function makeOrchNoAudit(store: SqliteRunStateStore) {
   });
 }
 
+/** Executor that fires and reconciles done WITH outputRefs. */
+function makeOutputRefsExecutor(outputRefs: Record<string, string>): Executor {
+  let fired = false;
+  return {
+    id: 'output-refs-exec',
+    async fire() { fired = true; return { dispatchHash: 'h-outputrefs' }; },
+    async reconcile() {
+      return fired ? { status: 'done' as const, resultRef: 'agora://ns/result/r1', outputRefs } : null;
+    },
+  };
+}
+
 describe('getAuditExport', () => {
+  it('audit export items carry outputRefs when the item produced them', async () => {
+    const store = new SqliteRunStateStore();
+    const outputRefs = { 'report.txt': 'agora://ns/artifact/d/sha256:ab' };
+    const auditLog = new AuditLog({ store, signer: NoneSigner, anchor: new LocalAnchor(store) });
+    const orch = new AgoraOrchestrator({
+      store,
+      executors: { 'output-refs-exec': makeOutputRefsExecutor(outputRefs) },
+      triggers: { manual: new ManualTrigger() },
+      queues: { default: { concurrency: 5 } },
+      auditLog,
+    });
+
+    const run: Run = {
+      id: 'run-export-test',
+      queue: 'default',
+      items: [
+        { id: 'step-a', executor: 'output-refs-exec', inputs: {}, depends_on: [], resourceLocks: [] },
+      ],
+    };
+
+    orch.submitRun(run);
+    // fire + reconcile
+    await orch.tick('default');
+    await orch.tick('default');
+
+    const exp = orch.getAuditExport('run-export-test');
+    expect(exp.items.find((i) => i.id === 'step-a')!.outputRefs)
+      .toEqual({ 'report.txt': 'agora://ns/artifact/d/sha256:ab' });
+
+    store.close();
+  });
+
+  it('items without outputRefs have no outputRefs key in their outcome', async () => {
+    const store = new SqliteRunStateStore();
+    const { orch } = makeOrchWithAudit(store);
+
+    const runId = orch.submitRun(oneItemRun, 'human:brett');
+
+    // Drive to completion
+    for (let i = 0; i < 8; i++) await orch.tick('default');
+
+    const exp = orch.getAuditExport(runId);
+    const outcome = exp.items.find((i) => i.id === 'step-a')!;
+    expect('outputRefs' in outcome).toBe(false);
+
+    store.close();
+  });
+
   it('does not crash and returns empty entries when orchestrator has no auditLog', async () => {
     const store = new SqliteRunStateStore();
     const orch = makeOrchNoAudit(store);

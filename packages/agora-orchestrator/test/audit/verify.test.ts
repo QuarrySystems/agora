@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { SqliteRunStateStore } from '../../src/runstate/sqlite.js';
 import { canonEntry } from '../../src/audit/canon.js';
 import { chainHash, merkleRoot, leavesFromEntryHashes } from '../../src/audit/merkle.js';
-import { verify } from '../../src/audit/verify.js';
+import { verify, claimFor } from '../../src/audit/verify.js';
 
 function seed(store: SqliteRunStateStore, runId: string) {
   const mk = (e: any, prev: string) => {
@@ -182,4 +182,25 @@ it('no anchor: checks.root.ok === n/a, checks.signature.ok === n/a', async () =>
   expect(r.checks.signature.ok).toBe('n/a');
   expect(r.checks.anchor.ok).toBe(false);
   expect(r.failure).toBe('anchor-missing');
+});
+
+it('bare verify: checks.handoff.ok === n/a', async () => {
+  const store = new SqliteRunStateStore();
+  const root = seed(store, 'r-handoff');
+  const r = await verify('r-handoff', { store, anchor: anchorOf(root) });
+  expect(r.checks.handoff.ok).toBe('n/a');
+});
+
+describe('claimFor', () => {
+  it('intact + external-immutable -> tamper-evident', () => {
+    expect(claimFor(true, 'external-immutable')).toBe('tamper-evident');
+  });
+
+  it('not intact + external-immutable -> tamper-detecting', () => {
+    expect(claimFor(false, 'external-immutable')).toBe('tamper-detecting');
+  });
+
+  it('intact + detect -> tamper-detecting', () => {
+    expect(claimFor(true, 'detect')).toBe('tamper-detecting');
+  });
 });

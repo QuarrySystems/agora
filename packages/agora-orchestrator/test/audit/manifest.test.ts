@@ -92,4 +92,26 @@ describe('buildManifest', () => {
     });
     expect(without.manifest.manifestHash).toBe(withUndefined.manifest.manifestHash);
   });
+
+  it('inputRefs is optional and its absence does not perturb the hash', () => {
+    const base = { runId: 'r', itemId: 'i', executor: 'dispatch', executorManifest: {},
+      secretRefs: [], actor: 'human:test', firedAt: '2026-06-05T00:00:00.000Z' };
+    const without = buildManifest(base);
+    const withUndefined = buildManifest({ ...base, inputRefs: undefined });
+    expect(without.manifest.manifestHash).toBe(withUndefined.manifest.manifestHash);
+  });
+
+  it('inputRefs is sealed into the manifest and covered by the self-hash', () => {
+    const refs = { patch: 'agora://ns/artifact/d/sha256:' + 'a'.repeat(64) };
+    const { manifest } = buildManifest({ runId: 'r', itemId: 'i', executor: 'dispatch',
+      executorManifest: {}, secretRefs: [], actor: 'human:test',
+      firedAt: '2026-06-05T00:00:00.000Z', inputRefs: refs });
+    expect(manifest.inputRefs).toEqual(refs);
+    // different refs -> different hash (the field is INSIDE the hash)
+    const { manifest: manifest2 } = buildManifest({ runId: 'r', itemId: 'i', executor: 'dispatch',
+      executorManifest: {}, secretRefs: [], actor: 'human:test',
+      firedAt: '2026-06-05T00:00:00.000Z',
+      inputRefs: { patch: 'agora://ns/artifact/d/sha256:' + 'b'.repeat(64) } });
+    expect(manifest.manifestHash).not.toBe(manifest2.manifestHash);
+  });
 });

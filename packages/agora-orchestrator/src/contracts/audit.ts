@@ -38,8 +38,8 @@ export interface CheckResult {
 export interface VerificationReport {
   runId: string; intact: boolean; anchorId: string; guarantee: Guarantee;
   claim: 'tamper-evident' | 'tamper-detecting';
-  failure?: 'chain' | 'anchor-missing' | 'root-mismatch' | 'signature';  // first failing check (kept for back-compat)
-  checks: { chain: CheckResult; root: CheckResult; signature: CheckResult; anchor: CheckResult };
+  failure?: 'chain' | 'anchor-missing' | 'root-mismatch' | 'signature' | 'handoff';  // first failing check (kept for back-compat)
+  checks: { chain: CheckResult; root: CheckResult; signature: CheckResult; anchor: CheckResult; handoff: CheckResult };
 }
 
 export interface AuditEntryRow extends AuditEntry { entryHash: string; prevHash: string; }
@@ -56,6 +56,9 @@ export interface AuditStore {
 export interface AuditItemOutcome {
   id: string; status: string; attempts?: number; actor?: string;
   resultRef?: string; manifestRef?: string;
+  /** Producer-side handoff evidence (spec §7): outputs/ deliverable refs, keyed by
+   *  posix path. Refs only — content-addressed. */
+  outputRefs?: Record<string, string>;
 }
 
 /** Refs-only audit export the service publishes to the outbox on epoch seal (§6.5). */

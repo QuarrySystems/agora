@@ -95,6 +95,7 @@ export class DispatchExecutor implements Executor {
         actor: ctx?.actor ?? '',
         firedAt: new Date().toISOString(),
         submittedAt: ctx?.submittedAt,
+        ...(inputRefs && Object.keys(inputRefs).length ? { inputRefs } : {}),
       });
       // Content-address: compute hash FIRST, build pinned URI, put to it (mirrors
       // subagent-register.ts — round-trips on real LocalStorageProvider AND on the

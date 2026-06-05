@@ -198,6 +198,7 @@ export class AgoraOrchestrator {
       id: deNs(i.id), status: i.status, attempts: i.attempts, actor: i.actor,
       ...(i.resultRef !== undefined ? { resultRef: i.resultRef } : {}),
       ...(i.manifestRef !== undefined ? { manifestRef: i.manifestRef } : {}),
+      ...(i.outputRefs !== undefined ? { outputRefs: i.outputRefs } : {}),
     }));
     return { runId, entries, root, items };
   }

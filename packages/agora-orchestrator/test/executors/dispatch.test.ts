@@ -963,6 +963,64 @@ describe('DispatchExecutor', () => {
     expect(res?.outputRefs).toBeUndefined();
   });
 
+  // -------------------------------------------------------------------------
+  // Wave C: inputRefs sealed into manifest (typed-product handoff, spec §7)
+  // -------------------------------------------------------------------------
+
+  it('fire with inputRefs stores a manifest whose bytes contain those inputRefs', async () => {
+    const { compute, resolveExit } = makeDeferredCompute();
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: compute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img:v1' });
+
+    const inputRefs = { patch: 'agora://ns/artifact/d/sha256:' + 'a'.repeat(64) };
+    const item: WorkItem = {
+      ...baseItem,
+      inputs: { subagent: 's', inputRefs },
+    };
+
+    const ctx: FireContext = { runId: 'r1', actor: 'human:brett' };
+    const { manifestRef } = await executor.fire(item, ctx);
+    expect(manifestRef).toBeDefined();
+
+    const stored = JSON.parse(new TextDecoder().decode(await storage.get(manifestRef!)));
+    expect(stored.inputRefs).toEqual(inputRefs);
+
+    resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
+  });
+
+  it('fire without inputRefs (no needs) stores a manifest with NO inputRefs key', async () => {
+    const { compute, resolveExit } = makeDeferredCompute();
+    const storage = makeMemoryStorage();
+    storage.seed('s', 'subagent', 'ns', 'sha256:s', { name: 's' });
+    const client = new AgoraClient({
+      namespace: 'ns',
+      compute: { default: compute },
+      credentials: { default: makeCredentials() },
+      storage,
+      targets: { prod: { compute: 'default', credentials: 'default' } },
+    });
+    const executor = new DispatchExecutor({ client, target: 'prod', workerImage: 'img:v1' });
+
+    const ctx: FireContext = { runId: 'r1', actor: 'human:brett' };
+    // baseItem has no inputRefs in inputs
+    const { manifestRef } = await executor.fire(baseItem, ctx);
+    expect(manifestRef).toBeDefined();
+
+    const stored = JSON.parse(new TextDecoder().decode(await storage.get(manifestRef!)));
+    expect(stored.inputRefs).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(stored, 'inputRefs')).toBe(false);
+
+    resolveExit({ exitCode: 0, stdout: '', stderr: '', startedAt: new Date(0), finishedAt: new Date(1) });
+  });
+
   it('reconcile truncates outputs beyond MAX_SENTINEL_OUTPUTS (256)', async () => {
     const { compute, resolveExit } = makeDeferredCompute();
     const storage = makeMemoryStorage();
