@@ -80,6 +80,8 @@ export const mapReduce: Pattern = {
     }
 
     // Phase 2 — cause is a map: when ALL maps are done and no reduce exists, spawn it.
+    const mapIds = new Set(keys.map((k) => `map-${k}`));
+    if (!mapIds.has(item.id)) return null;
     const byId = new Map(ctx.runItems.map((i) => [i.id, i]));
     if (byId.has('reduce')) return null;
     if (!keys.every((k) => byId.get(`map-${k}`)?.status === 'done')) return null;

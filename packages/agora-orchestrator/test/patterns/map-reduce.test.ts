@@ -74,6 +74,14 @@ describe('plan()', () => {
     expect(() => mapReduce.plan(run)).toThrow(/inputs/i);
   });
 
+  it('throws when reduce template is missing inputs', () => {
+    const run: Run = {
+      id: 'r', queue: 'q',
+      items: [{ id: 'split', executor: 'x', depends_on: [], resourceLocks: [], inputs: { mapReduce: { map: { executor: 'x', inputs: {} }, reduce: { executor: 'x' } } } }],
+    };
+    expect(() => mapReduce.plan(run)).toThrow(/inputs/i);
+  });
+
   it('throws when reduce template is missing executor', () => {
     const run: Run = {
       id: 'r', queue: 'q',
@@ -276,5 +284,20 @@ describe('onTaskDone() — phase 2: all maps done → spawn reduce', () => {
     const someItem = { id: 'task1', status: 'done', executor: 'x', depends_on: [], resourceLocks: [], inputs: {} } as never as ItemState;
     const d = mapReduce.onTaskDone(someItem, { runItems: [someItem] });
     expect(d).toBeNull();
+  });
+
+  it('an unrelated done item does not trigger reduce even when all maps are done', () => {
+    const splitter = makeSplitter();
+    const mapA = makeMap('a.json');
+    const mapB = makeMap('b.json');
+    const preflight = { id: 'preflight', status: 'done', executor: 'x', depends_on: [], resourceLocks: [], inputs: {} } as never as ItemState;
+    const ctx = { runItems: [splitter, mapA, mapB, preflight] };
+    // The unrelated 'preflight' item completing should NOT spawn reduce
+    const d = mapReduce.onTaskDone(preflight, ctx);
+    expect(d).toBeNull();
+    // But the last map's callback SHOULD spawn reduce
+    const d2 = mapReduce.onTaskDone(mapB, ctx);
+    expect(d2).not.toBeNull();
+    expect(d2!.items[0]!.id).toBe('reduce');
   });
 });
