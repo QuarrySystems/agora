@@ -118,7 +118,14 @@ export async function captureOutputs(opts: {
   }
 
   const entries: OutputEntry[] = [];
+  // Symlink containment: readdir's recursive walk enumerates THROUGH symlinked
+  // directories, so a symlinked dir's children surface as ordinary entries whose
+  // own lstat is a regular file — skipping the symlink entry alone is not enough;
+  // everything beneath it must be skipped too. The sorted order above guarantees
+  // a symlink path is visited before any of its children, so a prefix list suffices.
+  const skippedLinkPrefixes: string[] = [];
   for (const relPosix of allEntries) {
+    if (skippedLinkPrefixes.some((p) => relPosix.startsWith(p))) continue;
     const absPath = join(outputsDir, relPosix);
 
     // Skip symlinks — a symlink pointing at a directory outside outputs/ would
@@ -129,7 +136,10 @@ export async function captureOutputs(opts: {
     } catch {
       continue; // race: entry disappeared between readdir and lstat
     }
-    if (linkStat.isSymbolicLink()) continue;
+    if (linkStat.isSymbolicLink()) {
+      skippedLinkPrefixes.push(relPosix + '/');
+      continue;
+    }
 
     // Stat to distinguish files from directories and check the size cap.
     let fileStat: { size: number; isFile(): boolean };
