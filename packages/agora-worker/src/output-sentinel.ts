@@ -9,7 +9,7 @@
 //   2. Write .agora/output.json in-workspace AND upload the sentinel to the
 //      per-dispatch dispatch-record URI (always, even when there is no patch).
 
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import {
   buildAgoraUri,
@@ -119,16 +119,24 @@ export async function captureOutputs(opts: {
 
   const entries: OutputEntry[] = [];
   for (const relPosix of allEntries) {
-    if (entries.length >= MAX_OUTPUT_ENTRIES) break;
-
     const absPath = join(outputsDir, relPosix);
 
-    // Stat first to distinguish files from directories and check the size cap.
+    // Skip symlinks — a symlink pointing at a directory outside outputs/ would
+    // cause readdir's recursive walk to enumerate files beyond the outputs/ tree.
+    let linkStat: { isSymbolicLink(): boolean };
+    try {
+      linkStat = await lstat(absPath);
+    } catch {
+      continue; // race: entry disappeared between readdir and lstat
+    }
+    if (linkStat.isSymbolicLink()) continue;
+
+    // Stat to distinguish files from directories and check the size cap.
     let fileStat: { size: number; isFile(): boolean };
     try {
       fileStat = await stat(absPath);
     } catch {
-      continue; // race: file disappeared between readdir and stat
+      continue; // race: file disappeared between lstat and stat
     }
     if (!fileStat.isFile()) continue; // skip subdirectory entries
     if (fileStat.size > MAX_OUTPUT_FILE_BYTES) continue; // oversized — skip
@@ -140,6 +148,7 @@ export async function captureOutputs(opts: {
     await storage.put(ref, bytes);
 
     entries.push({ path: relPosix, ref });
+    if (entries.length >= MAX_OUTPUT_ENTRIES) break;
   }
 
   return entries.length > 0 ? entries : undefined;

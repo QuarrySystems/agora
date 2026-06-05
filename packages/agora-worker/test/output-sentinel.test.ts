@@ -6,7 +6,7 @@
 // and the two-write (patchRef + dispatch record) contract.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildDispatchRecordUri, type StorageProvider } from '@quarry-systems/agora-core';
@@ -382,5 +382,62 @@ describe('captureOutputs + writeSentinel outputs field', () => {
     expect(outputs).toHaveLength(1);
     const stored = await storage.get(outputs![0].ref);
     expect(Buffer.from(stored)).toEqual(content);
+  });
+
+  it('cap counts only files — directory entries interleaved in recursive readdir do not consume cap slots', async () => {
+    // Create MAX_OUTPUT_ENTRIES files spread across subdirectories so that the
+    // raw readdir result contains directory entries interspersed with file
+    // entries. Before the fix, the cap would fire before MAX_OUTPUT_ENTRIES
+    // files were actually captured.
+    const numFiles = MAX_OUTPUT_ENTRIES;
+    // Put half the files in subdirectories (each subdir entry appears in the
+    // raw readdir list alongside its files, inflating the raw count).
+    const subDirCount = 8;
+    for (let s = 0; s < subDirCount; s++) {
+      await mkdir(join(dir, 'outputs', `sub${s}`), { recursive: true });
+    }
+    for (let i = 0; i < numFiles; i++) {
+      const subDir = `sub${i % subDirCount}`;
+      await writeFile(
+        join(dir, 'outputs', subDir, `file-${String(i).padStart(4, '0')}.txt`),
+        `data${i}`,
+      );
+    }
+    const outputs = await captureOutputs({
+      workspaceDir: dir,
+      storage,
+      namespace: 'ns',
+      dispatchId: 'd7',
+    });
+    expect(outputs).toBeDefined();
+    expect(outputs!.length).toBe(numFiles);
+  });
+
+  // Symlink guard — symlink creation on Windows requires elevated privileges or
+  // developer mode. Match the itPosix pattern used elsewhere in this package.
+  const itPosix = process.platform === 'win32' ? it.skip : it;
+
+  itPosix('skips symlinks pointing outside outputs/ to prevent scope inflation', async () => {
+    // Create a directory outside outputs/ with a file we must NOT capture.
+    const outsideDir = join(dir, 'outside');
+    await mkdir(outsideDir, { recursive: true });
+    await writeFile(join(outsideDir, 'secret.txt'), 'do-not-capture');
+
+    // Create outputs/ with a legitimate file and a symlink to the outside dir.
+    await mkdir(join(dir, 'outputs'), { recursive: true });
+    await writeFile(join(dir, 'outputs', 'legit.txt'), 'capture me');
+    await symlink(outsideDir, join(dir, 'outputs', 'leaked-link'), 'dir');
+
+    const outputs = await captureOutputs({
+      workspaceDir: dir,
+      storage,
+      namespace: 'ns',
+      dispatchId: 'd8',
+    });
+    expect(outputs).toBeDefined();
+    const paths = outputs!.map((o) => o.path);
+    expect(paths).toEqual(['legit.txt']); // only the legitimate file
+    expect(paths.some((p) => p.includes('secret'))).toBe(false);
+    expect(paths.some((p) => p.includes('leaked-link'))).toBe(false);
   });
 });
