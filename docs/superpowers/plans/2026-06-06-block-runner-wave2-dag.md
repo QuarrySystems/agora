@@ -5,16 +5,16 @@ created: 2026-06-06
 
 ```mermaid
 flowchart TD
-    task-pipeline-register["task-pipeline-register: client pipeline registration<br/>files: agora-client/src/pipeline-register.ts +2 more"]
-    task-cli-pipeline["task-cli-pipeline: agora pipeline CLI verbs<br/>files: agora-cli/src/cmd-pipeline.ts +2 more"]
-    task-dispatch-pipeline-thread["task-dispatch-pipeline-thread: DispatchWork.pipelineRef threading<br/>files: agora-core/src/dispatch.ts +2 more"]
-    task-executor-manifest["task-executor-manifest: executor reads inputs.pipeline + seals pipelineRef<br/>files: agora-orchestrator/src/executors/dispatch.ts +4 more"]
-    task-worker-pipeline-bundle["task-worker-pipeline-bundle: worker fetches + verifies the pipeline bundle<br/>files: agora-worker/src/env-parser.ts +3 more"]
-    task-entrypoint-declared["task-entrypoint-declared: entrypoint runs declared pipelines<br/>files: agora-worker/src/entrypoint.ts +1 more"]
-    task-data-pack["task-data-pack: data pack shapes (dataset-ref)<br/>files: agora-orchestrator/src/packs/data.ts +2 more"]
-    task-inproc-executor["task-inproc-executor: in-process worker executor fixture<br/>files: agora-orchestrator/test/fixtures/inproc-worker-executor.ts +2 more"]
-    task-e2e-data["task-e2e-data: real end-to-end data map-reduce test<br/>files: agora-orchestrator/test/data-mapreduce.int.test.ts"]
-    task-example-data["task-example-data: runnable data-mapreduce example<br/>files: examples/data-mapreduce/README.md +3 more"]
+    task-pipeline-register["task-pipeline-register: client pipeline registration<br/>files: agora-client/src/pipeline-register.ts +2 more"]:::done
+    task-cli-pipeline["task-cli-pipeline: agora pipeline CLI verbs<br/>files: agora-cli/src/cmd-pipeline.ts +2 more"]:::done
+    task-dispatch-pipeline-thread["task-dispatch-pipeline-thread: DispatchWork.pipelineRef threading<br/>files: agora-core/src/dispatch.ts +2 more"]:::done
+    task-executor-manifest["task-executor-manifest: executor reads inputs.pipeline + seals pipelineRef<br/>files: agora-orchestrator/src/executors/dispatch.ts +4 more"]:::done
+    task-worker-pipeline-bundle["task-worker-pipeline-bundle: worker fetches + verifies the pipeline bundle<br/>files: agora-worker/src/env-parser.ts +3 more"]:::done
+    task-entrypoint-declared["task-entrypoint-declared: entrypoint runs declared pipelines<br/>files: agora-worker/src/entrypoint.ts +1 more"]:::done
+    task-data-pack["task-data-pack: data pack shapes (dataset-ref)<br/>files: agora-orchestrator/src/packs/data.ts +2 more"]:::done
+    task-inproc-executor["task-inproc-executor: in-process worker executor fixture<br/>files: agora-orchestrator/test/fixtures/inproc-worker-executor.ts +2 more"]:::done
+    task-e2e-data["task-e2e-data: real end-to-end data map-reduce test<br/>files: agora-orchestrator/test/data-mapreduce.int.test.ts"]:::done
+    task-example-data["task-example-data: runnable data-mapreduce example<br/>files: examples/data-mapreduce/README.md +3 more"]:::done
 
     task-pipeline-register --> task-cli-pipeline
     task-dispatch-pipeline-thread --> task-executor-manifest
@@ -94,7 +94,7 @@ files:
   - packages/agora-client/src/pipeline-register.ts
   - packages/agora-client/src/index.ts
   - packages/agora-client/test/pipeline-register.test.ts
-status: pending
+status: done
 ```
 
 `registerPipeline(client, spec)` mirroring `subagent-register.ts` field-for-field (READ it
@@ -155,7 +155,7 @@ files:
   - packages/agora-cli/src/cmd-pipeline.ts
   - packages/agora-cli/src/index.ts
   - packages/agora-cli/test/cmd-pipeline.test.ts
-status: pending
+status: done
 ```
 
 `agora pipeline register <file>` / `agora pipeline validate <file>` / `agora pipeline list`
@@ -199,7 +199,7 @@ files:
   - packages/agora-core/src/dispatch.ts
   - packages/agora-client/src/dispatch.ts
   - packages/agora-client/test/dispatch-pipeline.test.ts
-status: pending
+status: done
 is_wiring_task: true
 ```
 
@@ -240,7 +240,7 @@ files:
   - packages/agora-orchestrator/src/audit/manifest.ts
   - packages/agora-orchestrator/test/executors/dispatch.test.ts
   - packages/agora-orchestrator/test/audit/manifest.test.ts
-status: pending
+status: done
 ```
 
 The orchestrator link: `DispatchExecutor.fire` reads the reserved `inputs.pipeline` key
@@ -288,7 +288,7 @@ files:
   - packages/agora-worker/src/bundle-fetcher.ts
   - packages/agora-worker/test/env-parser.test.ts
   - packages/agora-worker/test/bundle-fetcher.test.ts
-status: pending
+status: done
 ```
 
 The worker ingestion link: `BundleRefs` gains `pipeline?: BundleRef` (env-parser additive
@@ -334,7 +334,7 @@ depends_on: [task-worker-pipeline-bundle]
 files:
   - packages/agora-worker/src/entrypoint.ts
   - packages/agora-worker/test/entrypoint.test.ts
-status: pending
+status: done
 is_wiring_task: true
 ```
 
@@ -369,7 +369,7 @@ files:
   - packages/agora-orchestrator/src/packs/data.ts
   - packages/agora-orchestrator/src/index.ts
   - packages/agora-orchestrator/test/packs/data.test.ts
-status: pending
+status: done
 ```
 
 The second pack's orchestrator surface (spec §8): `packs/data.ts` — `data.split`,
@@ -419,7 +419,7 @@ files:
   - packages/agora-orchestrator/test/fixtures/inproc-worker-executor.ts
   - packages/agora-orchestrator/test/fixtures/inproc-worker-executor.test.ts
   - packages/agora-orchestrator/package.json
-status: pending
+status: done
 ```
 
 The bridge that makes the e2e real (spec §8): an `Executor` whose `fire` invokes the
@@ -474,7 +474,7 @@ id: task-e2e-data
 depends_on: [task-inproc-executor, task-data-pack, task-pipeline-register, task-executor-manifest]
 files:
   - packages/agora-orchestrator/test/data-mapreduce.int.test.ts
-status: pending
+status: done
 ```
 
 THE wave's proof (spec §8/§9): a fully real, fully offline run — real orchestrator +
@@ -531,7 +531,7 @@ files:
   - examples/data-mapreduce/package.json
   - examples/data-mapreduce/plan.json
   - examples/data-mapreduce/src/index.ts
-status: pending
+status: done
 is_wiring_task: true
 model_hint: cheap
 ```
