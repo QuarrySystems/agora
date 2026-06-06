@@ -51,9 +51,9 @@ it("dataPack contains all three shapes", () => {
 });
 
 it("dataRegistry resolves all three data shapes", () => {
-  expect(dataRegistry.get("data.split")?.id).toBe("data.split");
-  expect(dataRegistry.get("data.transform")?.id).toBe("data.transform");
-  expect(dataRegistry.get("data.aggregate")?.id).toBe("data.aggregate");
+  expect(dataRegistry().get("data.split")?.id).toBe("data.split");
+  expect(dataRegistry().get("data.transform")?.id).toBe("data.transform");
+  expect(dataRegistry().get("data.aggregate")?.id).toBe("data.aggregate");
 });
 
 it("combined devPack + dataPack registers without collision (ids unique across packs)", () => {

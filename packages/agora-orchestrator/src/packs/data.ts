@@ -49,4 +49,4 @@ export const dataAggregate: SubagentShape = {
 };
 
 export const dataPack: SubagentShape[] = [dataSplit, dataTransform, dataAggregate];
-export const dataRegistry = new PackRegistry(dataPack);
+export const dataRegistry = (): PackRegistry => new PackRegistry(dataPack);
