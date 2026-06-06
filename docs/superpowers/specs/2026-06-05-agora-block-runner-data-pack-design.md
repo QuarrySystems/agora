@@ -171,7 +171,10 @@ export interface PipelineSpec {
 export function validatePipelineSpec(spec: PipelineSpec): string[]
 ```
 
-Checks: `schemaVersion === 1`; id matches `/^[a-z0-9-]+\.[a-z0-9-]+$/` (the shape regex);
+Checks: `schemaVersion === 1`; id matches the pack-scoped form — **hoisted as a shared
+`isPackScopedId()` in core** so the regex exists ONCE (`subagent-shape.ts`'s private
+`ID_RE` is replaced by the core helper — orchestrator already depends on core; a targeted
+in-scope DRY fix, not unrelated refactoring);
 ≥1 block; every `kind` known; the string `'seal'` rejected as a reserved kind with a
 pointed error ("seal is auto-appended; remove it"); script `command` non-empty;
 `timeoutSeconds` positive when present; `lens`/`what` within their unions; tags non-empty
@@ -257,21 +260,29 @@ export async function runPipeline(spec: PipelineSpec, ctx: BlockContext): Promis
 - `lens: 'gate'` (default): non-zero exit / timeout / failure-to-start → block `failed` →
   pipeline aborts → `provider-failed` with the exit code carried (the task's substance
   failed — distinct from setup-script's `worker-failed`, which is chassis).
-- `lens: 'verify'`: never fails the pipeline; produces `VerifyOutcome` exactly per
-  `runVerify` (timeout/start-error → `passed: false`); report-only, the Gap A contract.
+- `lens: 'verify'`: never fails the pipeline; **delegates to `runVerify` literally** (it
+  IS those semantics — timeout/start-error → `passed: false`, bounded redacted report;
+  one primitive, never a reimplementation); report-only, the Gap A contract.
 
 ## 7. Registration + dispatch wiring + evidence
 
 - **Lib**: `agora-client/src/pipeline-register.ts` mirrors `subagent-register.ts`
-  field-for-field — `validatePipelineSpec` (reject on errors) → canonical JSON →
-  `computeContentHash` → `buildAgoraUri` → `storage.put` → pinned ref.
+  field-for-field — `validatePipelineSpec` (reject on errors) → `computeContentHash` over
+  the spec object → `buildAgoraUri({ type: 'pipeline', ... })` (the URI `type` field is
+  open; only `'dispatches'` is reserved — zero core URI changes) → write
+  `canonicalJsonString` bytes → pinned ref. The mirror inherits two properties for free:
+  **idempotent re-registration** (same content hash → reuse `registeredAt`, no duplicate
+  put) and **`resolveLatest` name resolution** (dispatches may reference a bare pipeline
+  name, resolved client-side to the latest pinned ref, the capability-ref pattern).
 - **CLI**: `agora pipeline register <file>` / `agora pipeline validate <file>` /
   `agora pipeline list` — siblings of the subagent verbs in the existing CLI layout.
 - **Dispatch**: a new bundle kind rides the existing `AGORA_BUNDLE_REFS_JSON` channel
-  (`bundleRefs.pipeline: { uri, contentHash }`); `bundle-fetcher` routes it through the
-  shared `fetchVerified`; the worker parses + **re-validates with the same
-  `validatePipelineSpec`** before running — a parse or validation failure routes through
-  the established `integrity-failed` path (it is a bundle problem, exactly like a
+  (`bundleRefs.pipeline: { uri, contentHash }`); `bundle-fetcher` verifies it via the
+  **subagentDef path** — fetch → parse → `verifyContentHash` over the PARSED object (the
+  canonical-JSON hash domain `registerPipeline` writes in; NOT the raw-bytes `fetchVerified`
+  path, which is for opaque capability/input blobs); the worker then **re-validates with
+  the same `validatePipelineSpec`** before running — a parse or validation failure routes
+  through the established `integrity-failed` path (a bundle problem, exactly like a
   malformed capability bundle). Orchestrator-side the ref travels via a
   reserved `inputs.pipeline` key (joining `inputs.{subagent, env, workerInput, inputRefs,
   gate, mapReduce}`) that `DispatchExecutor` threads into `bundleRefs` — engine,
