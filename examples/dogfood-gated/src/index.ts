@@ -184,11 +184,13 @@ async function main(): Promise<void> {
     await client.subagent.register({
       name: 'page-fixer',
       promptTemplate: PROMPT,
-      model: 'standard',
-      // Attempt-2 tuning: the fixer also gets source-seeds so it can VERIFY its own
-      // rewritten prose against the code (attempt 1 converged 12→5 findings but the
-      // source-blind fixer's connective text drifted; see run-3 attempt-1 artifacts).
+      // Attempt-3 tuning: the fix must converge in ONE round — multi-round respawn
+      // does not chain in the landed semantics (round-2 copies keep round-1 edges:
+      // the next gate re-judges fix-1's page while fix-2 reworks the ORIGINAL patch;
+      // observed live in attempt 2, filed as a known limitation). So the fixer gets
+      // the strongest model AND source-seeds to verify its own rewritten prose.
       // Still deliberately NO apply-work-patch (cumulative-patch contract unchanged).
+      model: 'max',
       capabilities: ['docs-seeds', 'source-seeds'],
     });
     await client.subagent.register({

@@ -25,7 +25,7 @@
         "gate": {
           "onRed": "spawn-fix",
           "subject": "write-page",
-          "maxFixAttempts": 2,
+          "maxFixAttempts": 1,
           "fixTemplate": {
             "executor": "dispatch",
             "inputs": {
