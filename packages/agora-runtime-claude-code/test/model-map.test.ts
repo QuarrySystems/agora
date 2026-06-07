@@ -16,3 +16,7 @@ it('passes through non-level strings byte-identical', () => {
 it('returns undefined when passed undefined', () => {
   expect(resolveModelArg(undefined)).toBeUndefined();
 });
+
+it('returns undefined when passed empty string', () => {
+  expect(resolveModelArg('')).toBeUndefined();
+});
