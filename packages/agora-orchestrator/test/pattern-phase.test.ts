@@ -1,13 +1,15 @@
 // packages/agora-orchestrator/test/pattern-phase.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SqliteRunStateStore } from '../src/runstate/sqlite.js';
-import { idKeyedExecutor, makeOrch, driveUntilDone } from './fixtures/pattern-harness.js';
+import { idKeyedExecutor, makeOrch, driveUntilDone, storageFromBlobs } from './fixtures/pattern-harness.js';
 import { AgoraOrchestrator } from '../src/orchestrator.js';
 import { ManualTrigger } from '../src/triggers/manual.js';
 import { AuditLog } from '../src/audit/audit-log.js';
 import { NoneSigner } from '../src/audit/signer.js';
 import { LocalAnchor } from '../src/audit/anchor.js';
-import type { Pattern, SpawnDirective } from '../src/contracts/pattern.js';
+import { assembleBundle } from '../src/audit/bundle.js';
+import { pipeline } from '../src/patterns/pipeline.js';
+import type { Pattern, SpawnDirective, GateConfig } from '../src/contracts/pattern.js';
 import type { ItemState, WorkItem } from '../src/contracts/index.js';
 import type { Run } from '../src/contracts/types.js';
 
@@ -354,6 +356,265 @@ describe('pattern-phase: spawned item actor is pattern:default in audit export',
 
     // De-namespace contract: fakePattern must have received only logical (non-namespaced) ids.
     expect(deNsViolations).toHaveLength(0);
+    store.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §7 gate-skip tick-level ordering: done-but-red path
+// ---------------------------------------------------------------------------
+
+/**
+ * Gate configuration for the done-but-red tests: gate item is a pipeline gate
+ * that carries verify.passed===false when reconciled. The gate is the second item
+ * in the pipeline (depends on 'subject'). The downstream item ('downstream') is
+ * the third item (depends on 'gate').
+ *
+ * maxFixAttempts:1 so that gate~2 done-but-red terminates without further respawn.
+ *
+ * The baseline same-tick test (behaviorDoneButRed) does NOT set outputRefs.findings
+ * on the gate, so the fix has no needs.findings binding and depends_on=['subject'] only.
+ * The separate findings-present test below (§7 data-edge exemption) adds
+ * outputRefs.findings to the gate behavior; the dep-resolver's data-edge exemption
+ * (commit 9fb0ea7) allows the fix to ready and complete despite depending on the red gate.
+ */
+const DONE_BUT_RED_GATE_CONFIG: GateConfig = {
+  onRed: 'spawn-fix',
+  subject: 'subject',
+  maxFixAttempts: 1,
+  fixTemplate: { executor: 'dispatch', inputs: {} },
+};
+
+/** 3-item run: subject → gate (with gate config) → downstream (pipeline.plan chains them) */
+const DONE_BUT_RED_ITEMS: WorkItem[] = [
+  { id: 'subject', executor: 'dispatch', inputs: {}, depends_on: [], resourceLocks: [] },
+  {
+    id: 'gate',
+    executor: 'dispatch',
+    inputs: { gate: DONE_BUT_RED_GATE_CONFIG },
+    depends_on: [],
+    resourceLocks: [],
+  },
+  { id: 'downstream', executor: 'dispatch', inputs: {}, depends_on: [], resourceLocks: [] },
+];
+
+describe('pattern-phase: §7 done-but-red gate → same-tick skip + spawn includes descendant', () => {
+  it('done-but-red gate skips its dependent in the same tick and respawn copies it', async () => {
+    const blobs = new Map<string, Uint8Array>();
+    const store = new SqliteRunStateStore();
+
+    /**
+     * Behavior (no findings): gate is done-but-red without outputRefs.findings.
+     *   'subject' → done + resultRef (needs-resolver requires a patch ref for gate-fix-1.needs.work)
+     *   'gate'    → done + verify.passed===false (done-but-red; no outputRefs.findings)
+     *               fix.depends_on=['subject'] only, so cascade-skip doesn't reach it.
+     *   'gate~2'  → done (green on second attempt — gate passes)
+     *   everything else ('gate-fix-1', 'downstream', 'downstream~2') → done
+     */
+    const REF_SUBJECT = 'agora://ns/artifact/subject/sha256:aaaa';
+    function behaviorDoneButRed(itemId: string) {
+      if (itemId === 'subject') return { status: 'done' as const, resultRef: REF_SUBJECT };
+      if (itemId === 'gate') return { status: 'done' as const, verify: { passed: false } };
+      return { status: 'done' as const };
+    }
+
+    const executor = idKeyedExecutor(blobs, behaviorDoneButRed);
+    const { orch } = makeOrch(store, executor, {
+      maxAttempts: 1,
+      queues: { default: { concurrency: 5, pattern: pipeline } },
+    });
+
+    const runId = orch.submitRun(
+      { id: 'dbr-happy', queue: 'default', items: DONE_BUT_RED_ITEMS },
+      'human:test',
+    );
+
+    await driveUntilDone(orch, 64, runId);
+
+    const statuses = orch.getStatus(runId);
+    const statusById = new Map(statuses.map((s) => [s.id, s.status]));
+    const ids = statuses.map((s) => s.id);
+
+    // subject and gate complete
+    expect(statusById.get('subject')).toBe('done');
+    expect(statusById.get('gate')).toBe('done');
+
+    // downstream was skipped (never readied) because gate was done-but-red
+    expect(statusById.get('downstream')).toBe('skipped');
+
+    // spawn set must include fix, gate~2, AND downstream~2 (not just fix + gate~2)
+    expect(ids).toContain('gate-fix-1');
+    expect(ids).toContain('gate~2');
+    expect(ids).toContain('downstream~2');
+
+    // gate-fix-1, gate~2, and downstream~2 all complete
+    expect(statusById.get('gate-fix-1')).toBe('done');
+    expect(statusById.get('gate~2')).toBe('done');
+    expect(statusById.get('downstream~2')).toBe('done');
+
+    // Run seals
+    const exp = orch.getAuditExport(runId);
+    expect(exp.root).toBeDefined();
+
+    // Exactly one run.extended entry caused by 'gate'
+    const extendedEntries = exp.entries.filter((e) => e.kind === 'run.extended');
+    expect(extendedEntries).toHaveLength(1);
+    expect(extendedEntries[0]!.itemId).toBe('gate');
+
+    store.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §7 data-edge exemption: findings-present case
+// ---------------------------------------------------------------------------
+
+describe('pattern-phase: §7 data-edge exemption — done-but-red gate with outputRefs.findings', () => {
+  it('fix readies and completes when gate produces findings; downstream skipped; downstream~2 done; fix manifest has findings inputRef', async () => {
+    const blobs = new Map<string, Uint8Array>();
+    const store = new SqliteRunStateStore();
+
+    /**
+     * Behavior (findings present): gate is done-but-red AND produces outputRefs.findings.
+     *   respawn.ts adds needs.findings = { from: 'gate', select: { kind:'output', path:'findings' } }
+     *   to fix item; normalizeRun unions gate.id into fix.depends_on.
+     *   The dep-resolver's data-edge exemption (commit 9fb0ea7) allows the fix to ready despite
+     *   gate being a blocking red gate: fix's needs.findings binding uses kind='output' from gate,
+     *   exempting that edge from the blocking predicate.
+     *
+     *   Expected arc:
+     *     subject    → done (resultRef = REF_SUBJECT_F)
+     *     gate       → done-but-red (verify.passed=false, outputRefs.findings = REF_FINDINGS)
+     *     downstream → skipped (blocked by red gate)
+     *     gate-fix-1 → done (data-edge exempt; inputRefs.findings = REF_FINDINGS; inputRefs.work = REF_SUBJECT_F)
+     *     gate~2     → done (green)
+     *     downstream~2 → done
+     */
+    const REF_SUBJECT_F = 'agora://ns/artifact/subject/sha256:cccc';
+    const REF_FINDINGS  = 'agora://ns/artifact/gate/findings/sha256:dddd';
+
+    function behaviorWithFindings(itemId: string) {
+      if (itemId === 'subject') return { status: 'done' as const, resultRef: REF_SUBJECT_F };
+      if (itemId === 'gate') {
+        return {
+          status: 'done' as const,
+          verify: { passed: false },
+          outputRefs: { findings: REF_FINDINGS },
+        };
+      }
+      return { status: 'done' as const };
+    }
+
+    const executor = idKeyedExecutor(blobs, behaviorWithFindings);
+    const { orch } = makeOrch(store, executor, {
+      maxAttempts: 1,
+      queues: { default: { concurrency: 5, pattern: pipeline } },
+    });
+
+    const runId = orch.submitRun(
+      { id: 'dbr-findings', queue: 'default', items: DONE_BUT_RED_ITEMS },
+      'human:test',
+    );
+
+    await driveUntilDone(orch, 64, runId);
+
+    const statuses = orch.getStatus(runId);
+    const statusById = new Map(statuses.map((s) => [s.id, s.status]));
+    const ids = statuses.map((s) => s.id);
+
+    // subject and gate complete
+    expect(statusById.get('subject')).toBe('done');
+    expect(statusById.get('gate')).toBe('done');
+
+    // downstream was skipped (gate was done-but-red, control-flow blocking)
+    expect(statusById.get('downstream')).toBe('skipped');
+
+    // fix, gate~2, downstream~2 all spawned and complete
+    expect(ids).toContain('gate-fix-1');
+    expect(ids).toContain('gate~2');
+    expect(ids).toContain('downstream~2');
+
+    // Fix MUST complete (not skipped) — data-edge exemption applied
+    expect(statusById.get('gate-fix-1')).toBe('done');
+    expect(statusById.get('gate~2')).toBe('done');
+    expect(statusById.get('downstream~2')).toBe('done');
+
+    // Run seals
+    const exp = orch.getAuditExport(runId);
+    expect(exp.root).toBeDefined();
+
+    // Provenance: fix manifest inputRefs.findings === REF_FINDINGS, inputRefs.work === REF_SUBJECT_F
+    const storage = storageFromBlobs(blobs);
+    const anchor = new LocalAnchor(store);
+    const bundle = await assembleBundle(exp, { anchor, storage });
+
+    const fixManifest = bundle.manifests.find((m) => m.itemId === 'gate-fix-1');
+    expect(fixManifest).toBeDefined();
+    expect(fixManifest!.inputRefs?.['findings']).toBe(REF_FINDINGS);
+    expect(fixManifest!.inputRefs?.['work']).toBe(REF_SUBJECT_F);
+
+    store.close();
+  });
+});
+
+describe('pattern-phase: §7 attempt-bound termination (done-but-red gate~2 at maxFixAttempts=1)', () => {
+  it('red gate~2 beyond maxFixAttempts leaves descendants skipped and the run settles', async () => {
+    const blobs = new Map<string, Uint8Array>();
+    const store = new SqliteRunStateStore();
+
+    /**
+     * Behavior:
+     *   'subject'    → done + resultRef (for gate-fix-1.needs.work patch binding)
+     *   'gate'       → done + verify.passed===false (done-but-red on first attempt)
+     *   'gate-fix-1' → done (fix completes)
+     *   'gate~2'     → done + verify.passed===false (done-but-red on second attempt too)
+     *                  → at attempt 2 > maxFixAttempts(1), no further respawn
+     *   'downstream' → skipped (cascaded from gate-done-but-red)
+     *   'downstream~2' → skipped (gate~2 done-but-red → dep-resolver skips it; no ~3 generation)
+     */
+    const REF_SUBJECT_EX = 'agora://ns/artifact/subject/sha256:bbbb';
+    function behaviorExhaust(itemId: string) {
+      if (itemId === 'subject') return { status: 'done' as const, resultRef: REF_SUBJECT_EX };
+      if (itemId === 'gate' || itemId === 'gate~2') {
+        return { status: 'done' as const, verify: { passed: false } };
+      }
+      return { status: 'done' as const };
+    }
+
+    const executor = idKeyedExecutor(blobs, behaviorExhaust);
+    const { orch } = makeOrch(store, executor, {
+      maxAttempts: 1,
+      queues: { default: { concurrency: 5, pattern: pipeline } },
+    });
+
+    const runId = orch.submitRun(
+      { id: 'dbr-exhaust', queue: 'default', items: DONE_BUT_RED_ITEMS },
+      'human:test',
+    );
+
+    await driveUntilDone(orch, 64, runId);
+
+    const statuses = orch.getStatus(runId);
+    const statusById = new Map(statuses.map((s) => [s.id, s.status]));
+    const ids = statuses.map((s) => s.id);
+
+    // No third-generation spawn: gate-fix-2 must NOT exist
+    expect(ids).not.toContain('gate-fix-2');
+
+    // gate~2 is done-but-red; downstream~2 stays skipped (not readied)
+    expect(statusById.get('gate~2')).toBe('done');
+    expect(statusById.get('downstream~2')).toBe('skipped');
+
+    // Run must settle (isSettled: nothing pending/ready/running)
+    const allTerminal = statuses.every((s) =>
+      ['done', 'failed', 'skipped', 'cancelled'].includes(s.status),
+    );
+    expect(allTerminal).toBe(true);
+
+    // Run seals
+    const exp = orch.getAuditExport(runId);
+    expect(exp.root).toBeDefined();
+
     store.close();
   });
 });
