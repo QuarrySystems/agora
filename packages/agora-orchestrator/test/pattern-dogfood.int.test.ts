@@ -230,13 +230,13 @@ describe('pattern-dogfood: circle-back happy path', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 2: failed gate — pins gateReason degradation (failed path is still legal)
+// Scenario 2: failed gate — retains the failed-gate path (still legal engine behavior)
 // ---------------------------------------------------------------------------
-// NOTE: This scenario retains the 'failed' gate path to pin that:
-//   - no outputRefs exist on a failed gate (provenance closure only admits done producers)
-//   - fix gets inputs.gateReason instead of needs.findings for a failed gate
-//   (per respawn.ts: when gate.status==='failed' && gate.reason!==undefined, gateReason is
-//   merged into fix inputs as plain data rather than a provenance edge)
+// NOTE: This scenario keeps the 'failed' gate path exercised at the orchestrator level.
+// The gateReason-degradation specifics (no outputRefs on a failed gate; fix receives
+// inputs.gateReason as plain data instead of a needs.findings provenance edge) are
+// pinned by unit assertions in respawn.test.ts — this scenario asserts the lifecycle
+// outcome (no second fix beyond maxFixAttempts; run settles sealed).
 
 describe('pattern-dogfood: maxFixAttempts exhaustion', () => {
   it(
