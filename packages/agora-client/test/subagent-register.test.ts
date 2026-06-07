@@ -240,11 +240,11 @@ describe('registerSubagent', () => {
     const handle = await registerSubagent(client, {
       name: 'analyst',
       systemPrompt: 'analyze carefully',
-      model: 'claude-opus-4',
+      model: 'max',
     });
     const pinnedUri = `agora://ns/subagent/analyst/${handle.contentHash}`;
     const def = JSON.parse(new TextDecoder().decode(await storage.get(pinnedUri)));
-    expect(def.model).toBe('claude-opus-4');
+    expect(def.model).toBe('max');
   });
 
   it('stores null for model when not provided', async () => {
@@ -265,7 +265,7 @@ describe('registerSubagent', () => {
     const withModel = await registerSubagent(client, {
       name: 'analyst',
       systemPrompt: 'analyze',
-      model: 'claude-opus-4',
+      model: 'max',
     });
     const withoutModel = await registerSubagent(client, {
       name: 'analyst',
