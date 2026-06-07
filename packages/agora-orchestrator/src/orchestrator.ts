@@ -32,7 +32,7 @@ export interface AgoraOrchestratorOptions {
 export { PRIVILEGE } from './contracts/privilege.js';
 
 export interface StatusItem {
-  id: string; runId: string; status: string; blockedBy: string[];
+  id: string; runId: string; status: string; blockedBy: string[]; depends_on: string[];
   resultRef?: string; manifestRef?: string;
   verify?: VerifyOutcome;
 }
@@ -302,6 +302,7 @@ export class AgoraOrchestrator {
       blockedBy: i.depends_on
         .filter((d) => byId.get(`${i.runId}:${d}`)?.status !== 'done')
         .map((d) => deNs(d)),
+      depends_on: i.depends_on.map(deNs),
       ...(i.resultRef !== undefined ? { resultRef: i.resultRef } : {}),
       ...(i.verify !== undefined ? { verify: i.verify } : {}),
       ...(i.manifestRef !== undefined ? { manifestRef: i.manifestRef } : {}),

@@ -56,11 +56,15 @@ import {
   serve,
   verifyBundle,
   pipeline,
+  buildRunView,
+  renderRunView,
+  nextFrame,
 } from '@quarry-systems/agora-orchestrator';
 import type {
   Run,
   AuditBundle,
   DispatchExecutorManifest,
+  StatusLike,
 } from '@quarry-systems/agora-orchestrator';
 import { parseAgoraUri, buildDispatchRecordUri } from '@quarry-systems/agora-core';
 import type { RuntimeUsage } from '@quarry-systems/agora-core';
@@ -244,13 +248,22 @@ async function main(): Promise<void> {
       ac.abort();
       process.exitCode = 1;
     }, RUN_TIMEOUT_MS);
+    let prevFrame: string[] | undefined;
+    const usageCache = new Map<string, RuntimeUsage>();
     for await (const rec of api.watch(runId, { intervalMs: 3_000, signal: watchAc.signal })) {
-      if (Array.isArray(rec.body)) {
-        for (const item of rec.body as StatusBodyItem[]) {
-          const v = item.verify ? ` verify.passed=${item.verify.passed}` : '';
-          console.log(`  ${item.id}: ${item.status}${item.resultRef ? ' resultRef=' + item.resultRef : ''}${v}`);
+      if (rec.kind !== 'status' || !Array.isArray(rec.body)) continue;
+      const status = rec.body as StatusLike[];
+      for (const it of status) {
+        if (it.manifestRef && it.status === 'done' && !usageCache.has(it.id)) {
+          const u = await readUsage(it.manifestRef);
+          if (u) usageCache.set(it.id, u);
         }
       }
+      const frame = nextFrame(prevFrame, renderRunView(
+        buildRunView({ plan, pattern: pipeline, status, evidence: usageCache }),
+        { color: false, unicode: true },
+      ));
+      if (frame) { console.log(frame.join('\n')); prevFrame = frame; }
     }
     clearTimeout(timeoutHandle);
 

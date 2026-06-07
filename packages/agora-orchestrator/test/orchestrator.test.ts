@@ -159,6 +159,41 @@ describe('run-scoped item ids', () => {
     expect(st.find((s) => s.id === 'step2')!.blockedBy).toEqual(['step1']); // de-namespaced
     expect(st.find((s) => s.id === 'step2')!.runId).toBe('dep-run');
   });
+
+  it('getStatus publishes full depends_on alongside blockedBy', async () => {
+    const store = new SqliteRunStateStore();
+    const orch = makeOrch(store);
+    const depRun = { id: 'dep-run', queue: 'default', items: [
+      { id: 'step1', executor: 'fake', inputs: {}, depends_on: [], resourceLocks: [] },
+      { id: 'step2', executor: 'fake', inputs: {}, depends_on: ['step1'], resourceLocks: [] },
+      { id: 'step3', executor: 'fake', inputs: {}, depends_on: ['step2'], resourceLocks: [] },
+    ]};
+    orch.submitRun(depRun);
+
+    // Before advancing: step2 depends on step1, not done yet, so blockedBy = depends_on
+    let st = orch.getStatus('dep-run');
+    const step2Before = st.find((s) => s.id === 'step2')!;
+    expect(step2Before.depends_on).toEqual(['step1']);
+    expect(step2Before.blockedBy).toEqual(['step1']);
+
+    // Advance step1 to done: fire then reconcile
+    await orch.tick(); // fires step1
+    await orch.tick(); // reconciles step1 -> done, fires step2
+
+    // After step1 done: step2's depends_on still contains step1, but blockedBy does NOT
+    st = orch.getStatus('dep-run');
+    const step2After = st.find((s) => s.id === 'step2')!;
+    expect(step2After.depends_on).toEqual(['step1']); // still depends on step1
+    expect(step2After.blockedBy).not.toContain('step1'); // but step1 is done, not blocking
+    expect(step2After.status).toBe('running'); // step2 is now running
+
+    // step3 still depends on step2, not done yet, so blockedBy = depends_on
+    const step3 = st.find((s) => s.id === 'step3')!;
+    expect(step3.depends_on).toEqual(['step2']);
+    expect(step3.blockedBy).toEqual(['step2']);
+
+    store.close();
+  });
 });
 
 describe('submitRun validation gate', () => {
