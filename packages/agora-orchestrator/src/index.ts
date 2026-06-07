@@ -39,3 +39,8 @@ export { pipeline } from './patterns/pipeline.js';
 export { mapReduce } from './patterns/map-reduce.js';
 export { collectSpawns } from './patterns/scan.js';
 export { respawnLineage, parseAttempt } from './patterns/respawn.js';
+export { buildRunView } from './view/build.js';
+export type { RunView, RunViewNode, RunViewLayout, NodeKind, StatusLike } from './view/build.js';
+export { renderRunView } from './view/render.js';
+export type { RenderRunViewOpts } from './view/render.js';
+export { nextFrame } from './view/frame.js';
