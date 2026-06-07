@@ -157,4 +157,46 @@ describe('§7 gate-skip predicate', () => {
     expect(computeNewlyReady([gate, dep])).toEqual(['d']);
     expect(computeSkipped([gate, dep])).toEqual([]);
   });
+
+  // §7 "Data-edge exemption" — per-edge predicate (run-3 spec)
+
+  it('data-edge exemption: fix-item (needs kind=output from the red gate) IS readied and NOT skipped', () => {
+    // The fix item depends on the gate (auto-unioned by normalizeRun) AND consumes its findings output.
+    const gate = gateItem({ id: 'g', status: 'done', verify: { passed: false }, inputs: SPAWN_FIX_GATE });
+    const fix = gateItem({
+      id: 'fix',
+      status: 'pending',
+      depends_on: ['g'],
+      needs: { findings: { from: 'g', select: { kind: 'output', path: 'findings' } } },
+    });
+    // The fix item is a data consumer of the gate's outputs — it should be readied, not blocked.
+    expect(computeNewlyReady([gate, fix])).toEqual(['fix']);
+    expect(computeSkipped([gate, fix])).toEqual([]);
+  });
+
+  it('data-edge exemption: needs binding with kind=patch from red gate is NOT exempt (still blocked)', () => {
+    const gate = gateItem({ id: 'g', status: 'done', verify: { passed: false }, inputs: SPAWN_FIX_GATE });
+    const consumer = gateItem({
+      id: 'c',
+      status: 'pending',
+      depends_on: ['g'],
+      needs: { patch: { from: 'g', select: { kind: 'patch' } } },
+    });
+    expect(computeNewlyReady([gate, consumer])).toEqual([]);
+    expect(computeSkipped([gate, consumer])).toEqual(['c']);
+  });
+
+  it('data-edge exemption: needs kind=output from a DIFFERENT item does NOT exempt the red-gate edge', () => {
+    // consumer has kind=output binding but from a different item — the gate edge is still blocking.
+    const gate = gateItem({ id: 'g', status: 'done', verify: { passed: false }, inputs: SPAWN_FIX_GATE });
+    const other = gateItem({ id: 'other', status: 'done' });
+    const consumer = gateItem({
+      id: 'c',
+      status: 'pending',
+      depends_on: ['g'],
+      needs: { data: { from: 'other', select: { kind: 'output', path: 'result' } } },
+    });
+    expect(computeNewlyReady([gate, other, consumer])).toEqual([]);
+    expect(computeSkipped([gate, other, consumer])).toEqual(['c']);
+  });
 });
