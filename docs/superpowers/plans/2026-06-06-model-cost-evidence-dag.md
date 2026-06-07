@@ -192,8 +192,8 @@ Pure exported parser for `claude --print --output-format json` stdout (spec §4.
 import type { RuntimeUsage } from '@quarry-systems/agora-core';
 
 export interface ParsedEnvelope {
-  /** Agent text, normalized to end with exactly one trailing \n — identical to what
-   *  raw `claude --print` stdout would carry for the same content. */
+  /** Agent text, normalized to end with at least one trailing \n (never double-appended) —
+   *  matching what raw `claude --print` stdout carries for the same content. */
   text: string;
   usage?: RuntimeUsage;
 }
@@ -233,8 +233,8 @@ Tolerances to cover: envelope without `modelUsage` (older CLIs) → `usage.model
 
 ## Acceptance criteria
 
-- Well-formed envelope: text === `result` + exactly one trailing `\n`; usage carries models (keys of `modelUsage`), costUsd, turns, durationMs when present.
-- `result` ending in `\n` is not double-terminated.
+- Well-formed envelope: text ends with at least one trailing `\n`, appended only when `result` lacks one (never double-appended); usage carries models (keys of `modelUsage`), costUsd, turns, durationMs when present.
+- `result` already ending in `\n` passes through byte-identical.
 - Missing `modelUsage`/scalars tolerated (fields omitted, models `[]`).
 - Non-JSON and wrong-shape-JSON stdout: returned verbatim as text, usage absent.
 - Tests run on Windows (pure function, no spawn).
@@ -309,9 +309,10 @@ model_hint: standard
 ## Implementation
 
 ```typescript
-// packages/agora-client/src/dispatch.ts — inside the env assembly block:
+// packages/agora-client/src/dispatch.ts — inside the env assembly block (the map is
+// named `envVars`, dispatch.ts:248):
 if (work.model !== undefined && work.model !== '') {
-  env.AGORA_MODEL = work.model;
+  envVars.AGORA_MODEL = work.model;
 }
 ```
 
@@ -341,21 +342,22 @@ Test file: `packages/agora-client/test/dispatch-model.test.ts`.
 id: task-client-register-regression
 depends_on: []
 files:
-  - packages/agora-client/test/subagent-register-model.test.ts
+  - packages/agora-client/test/subagent-register.test.ts
 status: pending
 model_hint: cheap
 ```
 
-Test-only. The audit found `subagent.register` already persists `model` into the canonical def blob inside the content hash (`subagent-register.ts:34,74`) — pre-existing behavior with no dedicated coverage. Pin it so the feature's foundation can't silently regress.
+Test-only. The audit found `subagent.register` already persists `model` into the canonical def blob inside the content hash (`subagent-register.ts:34,74`) — pre-existing behavior with no dedicated coverage. Pin it so the feature's foundation can't silently regress. **Append the new cases to the EXISTING suite** — its memory-storage harness (`makeMemoryStorage`/`makeClient`, `subagent-register.test.ts:11-60`) is file-local and not exported; a separate file would force duplicating it (plan-audit finding 3).
 
 ## Implementation
 
 ```typescript
-// packages/agora-client/test/subagent-register-model.test.ts
+// appended to packages/agora-client/test/subagent-register.test.ts — use the file's
+// existing local harness (makeMemoryStorage/makeClient, lines 11-60) and its existing
+// stored-blob read pattern verbatim:
 it('persists model into the stored canonical def', async () => {
-  const { client, storage } = makeClientWithMemoryStorage();
   const ref = await client.subagent.register({ name: 's', promptTemplate: 'p', model: 'max' });
-  const def = JSON.parse(new TextDecoder().decode(await storage.get(pinnedUriFor(ref))));
+  const def = readStoredDef(ref); // however the surrounding suite reads the canonical blob
   expect(def.model).toBe('max');
 });
 ```
@@ -368,14 +370,13 @@ it('content hash differs between model and no-model registrations', async () => 
 });
 ```
 
-Reuse the existing registration-test helpers/fakes in `packages/agora-client/test/` (do not invent new fixtures if a memory-storage harness exists).
-
 ## Acceptance criteria
 
 - Registered `model` survives to the stored blob (`def.model === 'max'`); omitted model stores `null` (current canonicalization).
 - `model` participates in the content hash (different hash with vs without).
+- All pre-existing cases in the suite untouched and green.
 
-Test file: `packages/agora-client/test/subagent-register-model.test.ts`.
+Test file: `packages/agora-client/test/subagent-register.test.ts`.
 
 ## Task: worker env-parser AGORA_MODEL
 
@@ -394,12 +395,12 @@ Parse the new optional control-plane var `AGORA_MODEL` into the worker's parsed-
 ## Implementation
 
 ```typescript
-// packages/agora-worker/src/env-parser.ts — in the parse result type + parse fn:
+// packages/agora-worker/src/env-parser.ts — WorkerConfig gains the field; parseWorkerEnv
+// returns a literal object (env-parser.ts:189-203), so the addition rides that literal:
 /** Requested model (control-plane; work.model pass-through). Opaque string — levels resolve in the adapter. */
 model?: string;
-// ...
-const model = env.AGORA_MODEL;
-if (model !== undefined && model !== '') parsed.model = model;
+// in the returned literal (follow the file's existing optional-var idiom):
+...(env.AGORA_MODEL ? { model: env.AGORA_MODEL } : {}),
 ```
 
 ```typescript
@@ -495,8 +496,9 @@ Aggregation rule (multiple agent blocks in one pipeline): union of `models` (ded
 ## Implementation
 
 ```typescript
-// packages/agora-worker/src/entrypoint.ts — where BlockContext.subagent is built:
-const subagentForCtx = { ...subagentDef, model: parsed.model ?? subagentDef.model };
+// packages/agora-worker/src/entrypoint.ts — where the subagent def feeds BlockContext
+// (the parsed config is named `cfg` at entrypoint.ts:134; the def is `subagent` at :463):
+const subagentForCtx = { ...subagent, model: cfg.model ?? subagent.model };
 ```
 
 ```typescript
@@ -509,15 +511,16 @@ it('threads adapter usage into the sealed sentinel and prefers parsed.model over
 });
 ```
 
-Golden additions in `pipeline-golden.test.ts`: one new case with a fake adapter reporting usage — pin the exact key array including `usage`'s position (after `outputs`, before `blocks`) and round-trip stability; assert all EXISTING golden cases remain byte-identical (no usage → no key). Fake adapters in existing tests are unaffected (`usage` optional on `RuntimeExit`).
+Golden additions in `pipeline-golden.test.ts`: one new case with a fake adapter reporting usage — pin the exact key array with `usage` after `outputs` (`blocks` is absent here: this file covers default pipelines only, where `blocks` never appears — the before-`blocks` position pin is owned by task-worker-sentinel-usage) and round-trip stability; assert all EXISTING golden cases remain byte-identical (no usage → no key). Fake adapters in existing tests are unaffected (`usage` optional on `RuntimeExit`).
 
 ## Acceptance criteria
 
-- `parsed.model` set → `RuntimeInvocation.model` receives it (overrides def); unset → def's model flows as today; worker performs no level mapping (opaque).
+- `cfg.model` set → `RuntimeInvocation.model` receives it (overrides def); unset → def's model flows as today; worker performs no level mapping (opaque).
 - Single agent block reporting usage → sentinel `usage` equals it verbatim.
 - Two agent blocks reporting usage → models unioned in first-seen order, scalars summed; one reporting + one silent → silent one contributes nothing.
 - No agent block reports usage → sentinel has no `usage` key; existing goldens byte-identical.
-- New golden pins the key array with `usage` between `outputs` and `blocks`.
+- New golden pins the key array with `usage` after `outputs` (default pipeline; `blocks` absent).
+- Firewall regression (spec §6): in `entrypoint.test.ts`, with `AGORA_MODEL` set in the worker env, the adapter's received `ctx.env` does NOT contain `AGORA_MODEL` (stripped like all `AGORA_*`), while the invocation `model` field carries the value.
 
 Test file: `packages/agora-worker/test/pipeline-runner.test.ts` (plus golden case in `test/pipeline-golden.test.ts`, override case in `test/entrypoint.test.ts`).
 
@@ -564,7 +567,7 @@ it('seals defaultModel into manifest AND dispatched work when the subagent def h
 });
 ```
 
-Precedence matrix to cover: def-only / default-only / both (def wins) / neither (manifest `''`, work carries no model) — asserting `manifest.model.id === (captured.work.model ?? '')` in every case. Reuse the existing executor test harness (`makeDeferredCompute`, `makeMemoryStorage` patterns already in this file).
+Precedence matrix to cover: def-only / default-only / both (def wins) / neither (manifest `''`, work carries no model) — asserting `manifest.model.id === (captured.work.model ?? '')` in every case. Reuse the existing executor test harness (`makeDeferredCompute`, `makeMemoryStorage` patterns already in this file). **Capture seam (plan-audit finding 8):** the harness has no `captured.work` — capture the `DispatchWork` by wrapping/spying `client.dispatch.fire`; do NOT observe via `TaskSpec.env.AGORA_MODEL` (that's the sibling passthrough task's surface, deliberately not a dependency).
 
 ## Acceptance criteria
 
@@ -584,10 +587,15 @@ files:
   - packages/agora-orchestrator/test/model-evidence.int.test.ts
   - packages/agora-orchestrator/test/fixtures/inproc-worker-executor.ts
 status: pending
-model_hint: standard
+model_hint: opus
 ```
 
-End-to-end (spec §6): one in-proc run through the `InprocWorkerExecutor` fixture proving the full evidence story — requested model sealed in the dispatch manifest, actual usage sealed in the output sentinel. Extend the fixture only as far as injecting a fake `RuntimeAdapter` whose `RuntimeExit` carries `usage` (the fixture runs `runWorker` via `RunWorkerDeps`; route the adapter through the existing injection seam — it currently rejects agent blocks, so the minimal extension is an injectable adapter for them).
+End-to-end (spec §6): one in-proc run through the `InprocWorkerExecutor` fixture proving the full evidence story — requested model sealed in the dispatch manifest, actual usage sealed in the output sentinel, AND the worker invocation actually receiving the model (the chain must be real, not faked at the manifest). The fixture today seals `executorManifest: {}` (`inproc-worker-executor.ts:194`), emits no `AGORA_MODEL` in `workerEnv` (`:149-158`), and its stub adapter throws on agent blocks (`:45-51`); `RunWorkerDeps` is the injection seam (`:163-168`, `entrypoint.ts:90-96`). FOUR fixture extensions are required, all additive:
+
+1. `adapter?: RuntimeAdapter` option — injected for agent blocks (default: reject as today).
+2. `defaultModel?: string` option + requested-model resolution mirroring the executor (`def.model ?? defaultModel`, def fetched from the pinned subagent URI in `item.inputs.subagent`).
+3. `model: { id: <effective ?? ''>, temperature: 0, maxTokens: 0 }` sealed into `executorManifest`.
+4. `AGORA_MODEL=<effective>` emitted into `workerEnv` when set — WITHOUT this the manifest would claim a model the in-proc worker never received, faking the very chain under test.
 
 ## Implementation
 
@@ -598,6 +606,7 @@ it('seals requested model in the manifest and actual usage in the sentinel on a 
   const h = await runInprocPlan({ defaultModel: 'standard', adapter: fakeAdapter, plan: singleAgentItemPlan() });
   const manifest = await h.readManifest('item-1');
   expect(manifest.executorManifest.model.id).toBe('standard');     // requested (authorization)
+  expect(h.invocations[0].model).toBe('standard');                 // the worker invocation REALLY received it
   const sentinel = await h.readSentinel('item-1');
   expect(sentinel.usage).toEqual({ models: ['claude-sonnet-4-6'], costUsd: 0.02, turns: 2 }); // actual (capture)
 });
@@ -651,7 +660,7 @@ Test file: n/a (docs; the site build is the gate).
 
 ```yaml
 id: task-changelog
-depends_on: [task-int-evidence]
+depends_on: [task-int-evidence, task-docs-site]
 files:
   - CHANGELOG.md
 status: pending

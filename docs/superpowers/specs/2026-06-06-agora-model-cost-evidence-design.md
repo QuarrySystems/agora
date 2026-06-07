@@ -80,6 +80,8 @@ usage?: {
 ```
 
 - The block flows into the dispatch evidence the same way `verify` and `outputs` already do, carried from the adapter via `RuntimeExit.usage` (§3.3) through `runAgentBlock` → auto-seal → `writeSentinel`.
+- **Multi-agent-block aggregation (plan-audit back-port):** when a pipeline runs more than one agent block, `models` is the dedup'd first-seen union; `costUsd`/`turns`/`durationMs` are summed across blocks that report them (absent values skipped, not zeroed); if no agent block reports usage, the sentinel carries no `usage` key.
+- **Recorded decision (capture-only boundary):** `usage` is deliberately NOT forwarded into `ExecutionResult` the way `verify`/`outputs` are (`DispatchExecutor.readSentinel` / fixture `reconcile`) — D4's "checkable by a reader" means the sentinel in the evidence, not a new orchestrator surface. Both sentinel readers extract selective fields and ignore unknown keys, so this is additive-safe. Forwarding is unowned until a consumer pulls it.
 - **Insertion order (frozen byte contract, audit):** `usage` lands **after `outputs`, before `blocks`** in the sentinel's conditional-assignment order (`output-sentinel.ts:211-218`). Goldens pin exact key arrays, so this position is fixed from day one.
 - Doc note: `usage.durationMs` is the *third* duration in the evidence chain (`DispatchResult.durationMs`, `BlockOutcome.durationMs`, and this model-reported one) — the docs must carry the "model time, adapter-reported" disambiguation.
 
