@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { S3Client, CreateBucketCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { AwsS3LockClient } from '../src/aws-s3-lock-client.js';
 
-const endpoint = process.env.AGORA_S3_ENDPOINT;
+const MINIO = process.env.AGORA_S3_ENDPOINT;
+const d = MINIO ? describe : describe.skip;
 
-describe.skipIf(!endpoint)('AwsS3LockClient (integration)', () => {
+d('AwsS3LockClient against MinIO object lock', () => {
   it('writes under COMPLIANCE retention; delete before retention is rejected', async () => {
-    const client = new S3Client({ endpoint, forcePathStyle: true, region: 'us-east-1',
+    const client = new S3Client({ endpoint: MINIO, forcePathStyle: true, region: 'us-east-1',
       credentials: { accessKeyId: 'minioadmin', secretAccessKey: 'minioadmin' } });
     await client.send(new CreateBucketCommand({ Bucket: 'agora-audit', ObjectLockEnabledForBucket: true })).catch(() => {});
     const lock = new AwsS3LockClient({ client, bucket: 'agora-audit' });

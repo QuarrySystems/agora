@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
 import { AwsS3MailboxClient } from '../src/aws-s3-mailbox-client.js';
 
-const endpoint = process.env.AGORA_S3_ENDPOINT; // set when MinIO is running
+const MINIO = process.env.AGORA_S3_ENDPOINT; // set when MinIO is running
+const d = MINIO ? describe : describe.skip;
 
-describe.skipIf(!endpoint)('AwsS3MailboxClient (integration)', () => {
+d('AwsS3MailboxClient against MinIO', () => {
   it('put/get/list/delete round-trips under prefix', async () => {
-    const client = new S3Client({ endpoint, forcePathStyle: true, region: 'us-east-1',
+    const client = new S3Client({ endpoint: MINIO, forcePathStyle: true, region: 'us-east-1',
       credentials: { accessKeyId: 'minioadmin', secretAccessKey: 'minioadmin' } });
     await client.send(new CreateBucketCommand({ Bucket: 'agora-data' })).catch(() => {});
     const mb = new AwsS3MailboxClient({ client, bucket: 'agora-data', prefix: 'mailbox/' });
