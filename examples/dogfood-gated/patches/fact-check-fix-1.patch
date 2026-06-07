@@ -1,302 +1,305 @@
 diff --git a/docs-site/src/content/docs/explanation/execution-patterns.md b/docs-site/src/content/docs/explanation/execution-patterns.md
 new file mode 100644
-index 0000000..b1bd7b4
+index 0000000..8f91572
 --- /dev/null
 +++ b/docs-site/src/content/docs/explanation/execution-patterns.md
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,299 @@
 +---
 +title: Execution patterns
-+description: How queue-level execution patterns (static-dag, pipeline, map-reduce) layer above the tick engine — the Pattern contract, the extendRun seam, run.extended audit entries, the gate/respawn circle-back, and the forward-arc-never-rewind invariant.
++description: How queue-level execution patterns (static-dag, pipeline, map-reduce) layer above the engine tick, how the gate/respawn lineage works, the extendRun + run.extended audit seam, and the forward-arc-never-rewind invariant that keeps every run graph acyclic.
 +---
 +
-+The core tick engine described in [How an offload run executes](/agora/explanation/how-offload-runs/)
-+handles one responsibility: advancing a fixed DAG of **WorkItems** through their
-+status lattice. Execution patterns are a separate layer built *on top of* that
-+engine — they let a queue answer a richer question: "now that some items have
-+finished, should the run grow?" This page explains the pattern layer, how you
-+configure it per queue, and the invariants that keep dynamically grown graphs
-+safe and auditable.
++The core orchestrator engine — ticks, `depends_on` resolution, resource locks,
++fire-and-reconcile — knows nothing about *what shape* a run should have. It
++schedules items; it does not decide whether more items should exist. **Execution
++patterns** fill that gap. A pattern is a per-queue strategy object that sits
++*above* the engine: after each engine tick the orchestrator runs a **pattern
++phase** that may decide to extend the run with new items, and those items flow
++right back into the unchanged engine on the next tick.
 +
-+## What execution patterns are
++This page explains the three built-in patterns, how you configure them on a
++queue, the `extendRun` seam and its audit trail, and the invariant that keeps
++every dynamically grown run graph correct.
 +
-+An **execution pattern** is a per-queue strategy object that the orchestrator
-+consults *after* the engine tick has advanced item states. The pattern contract
-+has two hooks:
++For the engine tick mechanics that patterns build on, see
++[How an offload run executes](/agora/explanation/how-offload-runs/). For the run
++graph format that `extendRun` validates against, see the
++[plan.json reference](/agora/reference/plan-json/).
 +
-+- `plan(run)` — runs once at `submitRun` time, before `validateRun`. It may
-+  expand or normalize the submitted run (and may throw a descriptive `Error` on
-+  malformed pattern config, which `submitRun` surfaces before the store is
-+  touched). `static-dag` returns the run unchanged.
-+- `onTaskDone(item, ctx)` — called for each terminal item of every in-scope run,
-+  on every tick, until the run seals. The pattern returns either `null` (no
-+  spawn) or a `SpawnDirective` carrying a list of new `WorkItem`s to append. The
-+  call is pure: `ctx.runItems` is a snapshot of the run's items, de-namespaced,
-+  and the pattern never touches the store directly.
++## The three patterns
 +
-+Three patterns ship in the engine:
++Each pattern is a strategy object with two pure hooks. `plan(run)` expands or
++normalizes a submission before validation runs at submit time. `onTaskDone(item,
++ctx)` fires once per terminal item of an in-scope run on every tick and either
++returns a `SpawnDirective` (new items + edges) or `null`. Patterns keep no
++state of their own; `ctx.runItems` (the de-namespaced view of the whole run) is
++the pattern's entire world.
 +
-+- **`static-dag`** — `plan` is the identity; `onTaskDone` always returns `null`.
-+  The run's DAG is fully specified at submit time and never changes.
-+- **`pipeline`** — `plan` linearizes the submitted items into a chain (each
-+  item with `depends_on: []` after the first gets a dependency on its
-+  predecessor). At runtime, `onTaskDone` watches for a **gate item** —
-+  identified by an `inputs.gate: GateConfig` payload — that lands in a "red"
-+  state (`failed`, or `done` with `verify.passed === false`). On a red gate with
-+  `onRed: 'spawn-fix'`, the pattern spawns a remediation lineage (see
-+  [Gate/respawn below](#gaterespawn-the-pipeline-circle-back)).
-+- **`map-reduce`** — `plan` validates that the run carries at most one splitter
-+  item (an item with `inputs.mapReduce: MapReduceConfig`). At runtime, when the
-+  splitter is `done`, `onTaskDone` reads its `outputRefs` and spawns one
-+  `map-<key>` item per output key. When every spawned `map-<key>` is `done`,
-+  `onTaskDone` then spawns a single `reduce` item whose `needs` bind each map's
-+  output.
++### `static-dag`
 +
-+All three implement the same `Pattern` interface and reuse the identical engine.
-+The pattern layer is purely an *item producer* — scheduling, locking, and
-+concurrency remain the engine's job.
++The default. Its `plan` is the identity, and `onTaskDone` always returns
++`null` — the run's item set is fixed at submit time and the engine works
++through it to completion. Use this whenever you know the full work graph up
++front. It is the simplest and most predictable shape: audit trail, provenance
++closure, and retry semantics are fully determined before a single item fires.
 +
-+## Queue-level pattern binding
++### `pipeline`
 +
-+Patterns are bound to queues programmatically through `AgoraOrchestratorOptions`,
-+not via a config file. A queue without a `pattern` has no pattern phase at all;
-+binding `staticDag` explicitly produces the same behaviour with one no-op call
-+per terminal item.
++A pipeline run is a sequence of items that have already been declared on the
++run at submit time. The pattern does two things:
++
++- **`plan` auto-chains the items.** Every item past the first whose
++  `depends_on` is empty gets `depends_on: [previousItem.id]` injected. You
++  submit the items in order; the pattern makes each one wait for the one
++  before it. There is no `stages` schema and no fan-out — just a linear
++  chain expressed through ordinary `depends_on` edges.
++- **`onTaskDone` spawns a fix lineage when a gate goes red.** A gate item
++  is any item whose reserved `inputs.gate` key carries a `GateConfig`:
++
++  ```ts
++  interface GateConfig {
++    onRed: 'advance' | 'spawn-fix';
++    subject: string;              // itemId whose product is being gated
++    fixTemplate?: SpawnTemplate;
++    maxFixAttempts?: number;      // default 1
++  }
++  ```
++
++  When a `spawn-fix` gate finishes red, the pattern asks `respawnLineage`
++  for the new items to append.
++
++On a clean pass the pattern is a no-op: the engine's normal dep-resolver
++advances to the next pre-declared item because its `depends_on` already
++points at the just-completed item. Forward progress is the engine's
++ordinary work; the pattern only intervenes on red. The lineage details
++are in [The gate/respawn lineage](#the-gaterespawn-lineage) below.
++
++### `map-reduce`
++
++A map-reduce run is submitted with a **splitter** item that carries a
++`MapReduceConfig` on its reserved `inputs.mapReduce` key:
 +
 +```ts
-+import { AgoraOrchestrator } from '@quarry-systems/agora-orchestrator';
-+import { mapReduce, pipeline } from '@quarry-systems/agora-orchestrator/patterns';
-+
-+const orchestrator = new AgoraOrchestrator({
-+  store,
-+  executors,
-+  triggers,
-+  queues: {
-+    default: { concurrency: 1 },                       // no pattern → static behaviour
-+    nightly: { concurrency: 4, pattern: mapReduce },
-+    ci:      { concurrency: 2, pattern: pipeline   },
-+  },
-+});
-+```
-+
-+`QueueConfig` is the minimal shape `{ concurrency: number; pattern?: Pattern }`.
-+There are no string-keyed `pattern.type` selectors and no queue-level
-+`splitterExecutor`/`mapExecutor`/`reduceExecutor`/`stages`/`gateExecutor`
-+fields — per-pattern configuration travels on the *items themselves* (the
-+splitter carries `inputs.mapReduce`; gate items carry `inputs.gate`).
-+
-+There is no startup-time pattern-config validation step. Pattern config is
-+validated at `submitRun` inside `pattern.plan(run)`, which runs *before*
-+`normalizeRun` and `validateRun`. A throwing `plan` rejects the submission
-+before `saveRun` is called, so a malformed `inputs.mapReduce` payload (for
-+example) becomes a submit-time `Error`, not a per-run runtime failure, and the
-+store stays clean. The orchestrator keeps the per-queue bindings in a plain
-+`Record<string, Pattern | undefined>` (no dedicated registry type).
-+
-+At runtime, after each `tick()` call on a queue, the orchestrator runs the
-+**pattern phase**: it groups the queue's items by `runId`, builds a
-+de-namespaced logical view, and calls `collectSpawns(view, pattern)`.
-+`collectSpawns` walks each terminal item and calls
-+`pattern.onTaskDone(item, { runItems: view })` once per terminal item; each
-+non-null `SpawnDirective` becomes one `extendRun` call. Runs whose audit epoch
-+has already sealed are skipped using the same guard as the seal block.
-+
-+## The `extendRun` seam
-+
-+Spawn directives from the pattern phase are not applied directly. They flow
-+through **`extendRun`**, the single audited gateway for all post-submit
-+mutations to a run:
-+
-+1. **Id-skip.** Any spawn item whose namespaced id already exists in the store
-+   is dropped silently. This makes pattern replay idempotent: if the
-+   orchestrator crashes mid-extension and the pattern phase re-runs, the
-+   duplicate directive is absorbed as a no-op.
-+2. **Runaway fuse.** If `existing.length + fresh.length` would exceed
-+   `maxItemsPerRun` (default 1000), `extendRun` throws and no items are written.
-+3. **Validate.** The fresh items are normalized (auto-unioning
-+   `needs[*].from` into `depends_on`) and merged with the existing run graph
-+   in logical-id space; the merged graph is run through the same `validateRun`
-+   call used at submit time. Any item that references a non-existent dependency,
-+   names an invalid lock key, or conflicts with an existing item id causes
-+   `extendRun` to throw — the store is left unchanged.
-+4. **Write.** Valid items are namespaced and saved through the same `saveRun`
-+   path used at submit. Items land as `pending`.
-+5. **Audit.** `extendRun` appends a single `run.extended` audit entry per call
-+   (per spawn batch). The append is wrapped in a try/catch — a failing audit
-+   sink must not abort the write — and the entry names the cause item, but does
-+   not carry the spawn payload.
-+
-+Because the pattern phase runs **before** the seal check in the same tick, a
-+run whose graph just grew has `pending` items in it when the seal check
-+inspects it. A run never seals with phantom-unseen items: the engine always
-+drains what the pattern produced before declaring the run complete.
-+
-+`extendRun` is marked internal in v1: the pattern phase is its sole intended
-+caller. The orchestrator's `applyPatternPhase` wraps each `extendRun` call in a
-+try/catch so that a spawn-validation failure for one run logs to stderr but
-+does not abort the tick — best-effort posture per spec §4.
-+
-+## `run.extended` audit entries
-+
-+```jsonc
-+// excerpt from an audit bundle
-+{
-+  "kind": "run.extended",
-+  "runId": "nightly@2026-06-07T02:00:00Z",
-+  "itemId": "split",
-+  "actor": "pattern:nightly",
-+  "at": "2026-06-07T02:00:12.345Z"
++interface MapReduceConfig {
++  map:    SpawnTemplate & { needsKey?: string; outputPath?: string };
++  reduce: SpawnTemplate & { keyPrefix?: string };
 +}
 +```
 +
-+The `itemId` field names the **cause item** — the terminal item whose
-+completion produced the spawn — and `actor` is the literal string
-+`pattern:<queue-name>`. There is no `queueName`, no `causeResultRef`, no
-+`spawnedItems` payload, and no embedded directive. The entry is a single-line
-+marker; the appended items themselves are visible through the store, and the
-+cause's `resultRef` / `outputRefs` can be read from the same audit export as
-+part of the cause item's row.
++`plan` validates the config (and rejects runs with more than one splitter);
++the actual fan-out happens in `onTaskDone`, in two phases:
 +
-+To reconstruct *why* a dynamically appended item exists, an auditor cross-walks
-+the run: the `run.extended` entries record which cause-item completion drove
-+each spawn batch, and the per-item audit rows (with their `resultRef`,
-+`outputRefs`, and `dispatchHash`) anchor the artifacts the pattern was reading
-+from.
++1. **Phase 1 — splitter done.** When the cause item is the splitter itself,
++   the pattern reads `splitter.outputRefs` directly off the in-memory
++   `ItemState` (already populated by the engine), sorts the keys for
++   replay determinism, and emits one item per key with `id: map-${k}`.
++   Each map item runs the configured map executor and binds the splitter's
++   output for that key into `needs[needsKey ?? 'input']`. The directive's
++   `depends_on` is empty; the engine's normalize step auto-unions
++   `needs[*].from` into `depends_on`, so the map item ends up depending
++   on the splitter.
++2. **Phase 2 — every map done.** When the cause is a `map-${k}` and every
++   `map-${k}` is `done` and no `reduce` item exists yet, the pattern emits
++   a single item with `id: reduce` that runs the configured reduce
++   executor and binds each map's output into
++   `needs[${keyPrefix ?? 'part'}-${k}]`.
 +
-+## Gate/respawn: the pipeline circle-back
++The fan-out width is unknown at submit time — that is the whole point. You
++submit a run with just the splitter, and the pattern grows it to N+1 items
++once the splitter has produced N output keys. There is no manifest-fetch
++step: the engine already attaches the splitter's `outputRefs` on the
++in-memory state, and the pattern reads it directly.
 +
-+The `pipeline` pattern introduces a named **gate item** between stages. A gate
-+is any item that carries an `inputs.gate: GateConfig` payload:
++## Queue-level pattern config
++
++Patterns are attached to queues, not to individual runs. A run submitted to a
++pattern-bound queue automatically participates in its pattern's phase; there
++is no per-run opt-in. The queue config is just `{ concurrency, pattern? }` —
++the pattern field is the imported strategy object:
 +
 +```ts
-+interface GateConfig {
-+  onRed: 'advance' | 'spawn-fix';
-+  subject: string;              // itemId whose product is being gated
-+  fixTemplate?: SpawnTemplate;
-+  maxFixAttempts?: number;      // default 1
-+}
++queues: {
++  'pipeline-q': { concurrency: 2, pattern: pipeline },
++  'fanout-q':   { concurrency: 8, pattern: mapReduce },
++  'default':    { concurrency: 4 },                    // no pattern → static
++},
 +```
 +
-+The pipeline's `onTaskDone` only fires when a gate item with
-+`onRed: 'spawn-fix'` reaches a red terminal state. "Red" means either
-+`status === 'failed'` *or* `status === 'done'` with `verify.passed === false`.
-+A green gate produces no spawn — downstream stages already depend on the gate
-+via the static chain set up by `plan`, so they advance through the engine's
-+normal path. A `cancelled` gate also produces no spawn.
++A queue with no `pattern` key has no pattern phase at all —
++`applyPatternPhase` short-circuits when the queue's pattern entry is
++`undefined`, which is behaviorally identical to configuring `staticDag`
++(whose hooks are both no-ops). The `concurrency` budget and `resourceLocks`
++semantics are unchanged regardless of pattern — the pattern phase only
++decides *which items exist*; the engine decides *which of those items run
++at once*.
 +
-+On a red gate, the pattern calls `respawnLineage`, which produces a
-+deterministic lineage:
++Because pipelines and map-reduce read their per-item knobs off reserved
++input keys (`inputs.gate`, `inputs.mapReduce`), the queue config itself
++stays tiny. The gate/respawn policy of a pipeline gate, and the map/reduce
++templates of a fan-out run, ride on the items the caller submits.
 +
-+- **Fix item.** Id `${base}-fix-${attempt}` (where `base`/`attempt` come from
-+  `parseAttempt(gate.id)`), executor and inputs from `config.fixTemplate`,
-+  `depends_on: [config.subject]`, `needs.work` bound to the subject's `patch`
-+  output. If the gate is `done`-but-red and exposed an `outputRefs.findings`
-+  artifact, `needs.findings` is bound to it; if the gate `failed`, the gate's
-+  `reason` is folded into the fix's inputs as `gateReason` (a failed gate has
-+  no outputRefs).
-+- **Gate copy.** Id `${base}~${attempt+1}`. Carries the same executor / inputs
-+  / locks as the original gate, but its `depends_on` and `needs[*].from` are
-+  remapped through a substitution map that sends `config.subject → fixId` and
-+  `gate.id → gateCopyId`. The copy therefore depends on the fix instead of the
-+  subject directly.
-+- **Skipped-descendant copies.** Items that depend on the failed gate
-+  (directly or transitively) and ended this tick as `skipped` are reissued as
-+  `${parseAttempt(d).base}~${attempt+1}`, with their edges remapped through the
-+  same substitution map.
++The pattern phase runs **after** the engine tick and **before** the seal
++check. A run that was just extended structurally cannot seal on that same
++tick, because the newly spawned items enter as `pending` and are therefore
++not terminal. The seal check sees live items and correctly defers.
 +
-+Respawn is blocked in three cases: no `fixTemplate` configured, any lineage
-+member observed in `cancelled` state, or the gate's parsed `attempt` already
-+exceeds `maxFixAttempts`.
++## `extendRun` and `run.extended` audit entries
 +
-+```mermaid
-+flowchart LR
-+  build --> lint
-+  lint -. red ⇒ pattern spawns .-> fix["lint-fix-1"]
-+  build --> fix
-+  fix --> gate2["lint~2"]
-+  gate2 --> test
-+  test --> deploy
++The pattern phase never writes items directly into the run-state store. All
++spawns flow through the audited **`extendRun`** seam:
++
++1. A pattern's `onTaskDone` returns a `SpawnDirective` — new `WorkItem`
++   descriptors with deterministic ids and their `depends_on` edges (in the
++   run's pre-namespace id space).
++2. `extendRun` first filters out items whose namespaced id already exists in
++   the store (the id-skip step that makes the call idempotent on replay),
++   then normalizes the remainder and validates the *merged* graph through
++   the same `validateRun` called at submit time. An invalid fragment
++   (unknown executor, dangling `depends_on`, runaway-fuse overrun) makes
++   `extendRun` throw; `applyPatternPhase` catches the throw, logs it to
++   stderr, and continues with the next directive — the run carries on
++   without the bad spawn.
++3. On success, every new item is written to the run-state store and
++   attributed to the actor `pattern:<queueName>` rather than to the
++   original submitter.
++4. An audit entry of **kind** `run.extended` is appended, naming the run
++   id, the cause item (the terminal item whose completion triggered this
++   spawn), the actor, and a timestamp.
++
++```
++{ kind: "run.extended",
++  runId: "r-abc123",
++  itemId: "gate-test",
++  actor: "pattern:pipeline-q",
++  at: "2026-06-04T09:12:03.441Z" }
 +```
 +
-+`lint` and `lint~2` are distinct item ids. Solid arrows are `depends_on`
-+edges; the dotted arrow marks the pattern's spawn trigger, not a graph edge.
-+The failed `lint` stays permanently in history; the fix and gate copy extend
-+the run forward.
++The queue name is encoded only implicitly through the actor string. There
++is no `pattern`, `queue`, or `spawnedIds` field on the entry — the spawned
++ids are recoverable by diffing the run graph against the previous audit
++snapshot.
++
++Spawn ids are deterministic by construction, but the exact format is
++pattern-specific. Pipeline respawn uses `${base}-fix-${attempt}` for the
++fix item and `${base}~${next}` for the gate copy and any skipped-descendant
++copies. Map-reduce uses `map-${outputKey}` and `reduce`. After `extendRun`
++accepts them, the store further namespaces every id as
++`${runId}\x1f${id}` (U+001F UNIT SEPARATOR) so two runs with identically
++named items never collide. Because spawn ids are deterministic, a
++crash-and-rescan re-derives the same directive; `extendRun`'s id-skip
++absorbs it (returning the empty list), no items are appended, and no new
++`run.extended` entry is written. Idempotency requires no extra dedup
++table.
++
++The `run.extended` entry is the point in the audit trail where the dynamic
++growth becomes attributable and verifiable. `agora verify` reads it to
++reconstruct the provenance graph covering both the original items and all
++spawned items — no separate verification path for dynamic runs.
++
++## The gate/respawn lineage
++
++A pipeline gate is an ordinary work item whose `inputs.gate` carries a
++`GateConfig`. The gate's pass/fail signal comes from the engine's per-item
++verify outcome on the gate's `ItemState`, not from any specific output file
++convention: the pattern treats the gate as **red** when
++
++```ts
++item.status === 'failed' ||
++(item.status === 'done' && item.verify?.passed === false)
++```
++
++and as **green** otherwise. There is no `outputs/gate.json` convention in
++the pattern layer.
++
++**Pass path.** Gate `done` with `verify.passed !== false`: `onTaskDone`
++returns `null` and the engine's ordinary dep-resolver moves on, because
++the next pre-declared item already has `depends_on` pointing at the gate
++(either because the caller wrote it that way or because `pipeline.plan`
++injected it). The pattern adds nothing.
++
++**Fail path (respawn).** Gate red and `gate.onRed === 'spawn-fix'`:
++`respawnLineage` runs. It returns the empty list — and therefore the
++pattern emits nothing — when the gate's attempt number is already past
++`maxFixAttempts` (default `1`), when any lineage member is `cancelled`,
++or when no `fixTemplate` was configured. If all guards pass, it builds:
++
++- a **fix item** with id `${base}-fix-${attempt}` whose `needs.work` binds
++  the gate's `subject` item's patch product; if the gate was done-but-red
++  and carries a `findings` output ref, that binds into `needs.findings`;
++  if the gate `failed`, the gate's `reason` is folded into the fix's
++  `inputs.gateReason` as plain data (a failed gate has no `outputRefs`,
++  so provenance closure cannot bind to it);
++- a **gate copy** with id `${base}~${next}` carrying the original gate's
++  static `WorkItem` fields, but with every edge remapped through a
++  substitution map `S` so that the copy now depends on the fix item
++  instead of the original subject;
++- a **copy of every skipped descendant** of the failed gate, with id
++  `${parseAttempt(d).base}~${next}`, edges similarly remapped through
++  `S`.
++
++The lineage = the gate plus every item transitively reachable from it via
++`depends_on` whose status is `skipped` (the items the engine cascaded
++after the gate failed). `respawnLineage` returns these new `WorkItem`s;
++the pattern wraps them in a `SpawnDirective`; `extendRun` appends them;
++the engine schedules them on the next tick.
++
++**Respawn exhaustion.** Once the gate's attempt count exceeds
++`maxFixAttempts`, `respawnLineage` returns the empty list, `onTaskDone`
++returns `null`, the pattern emits nothing, and the run settles with the
++failed gate intact. Downstream items remain `skipped` from the engine's
++ordinary cascade phase; nothing in the pattern logic special-cases this.
++
++The lineage is an **append**, not a loop. The failed branch is preserved
++as permanent nodes in the graph. Auditors can read the full history:
++first attempt, gate failure, fix item, gate copy, second-attempt outcome.
++No state is overwritten.
 +
 +## The forward-arc-never-rewind invariant
 +
-+All of the above rests on one structural guarantee: **spawned items may only
-+introduce edges that point at already-existing items. No existing item is ever
-+mutated to point at a newly spawned item.**
++Every item in every agora run graph obeys one structural rule:
 +
-+Concretely: `extendRun` only ever *appends* items. It calls `saveRun` with a
-+batch of fresh items; it never updates the depends_on of items already in the
-+store. The merged-graph `validateRun` call confirms that every `depends_on` in
-+the spawn batch resolves against the merged set (existing logical items plus
-+fresh ones). Existing topology is immutable once written.
++> **A `depends_on` edge may only point at an item whose id was present in
++> the run graph at the time the dependent item was created.**
 +
-+This invariant is what keeps execution patterns safe:
++This means every edge points *backward* in time. The graph is always a
++DAG. Patterns are the only mechanism that adds items after submit, and
++`extendRun` enforces the rule by running the merged graph through
++`validateRun`: any `depends_on` reference in a spawn directive that names
++an item id not yet in the run is rejected as an unknown dependency.
 +
-+- **Acyclicity is preserved.** Because new items only point backward, and
-+  existing items are never rewritten to point forward at new items, the merged
-+  graph cannot gain a cycle. The engine's `depends_on` semantics rely on the
-+  DAG being acyclic.
-+- **Replay is deterministic.** Patterns are pure functions of the run snapshot,
-+  and spawn ids are derived deterministically from item-level facts —
-+  `map-<outputKey>` from the splitter's `outputRefs` keys (sorted) and the
-+  literal `reduce` in map-reduce; `${base}-fix-${attempt}` and
-+  `${base}~${attempt+1}` from `parseAttempt(gate.id)` in respawn. Queue name
-+  does not enter into spawn ids. `extendRun`'s id-skip absorbs duplicates
-+  silently, so a crash mid-extension and re-run of the pattern phase reproduces
-+  the same outcome.
-+- **Audit closure is total.** Because no existing item ever points at a newly
-+  spawned item, every product consumed by a spawned item was already recorded
-+  before the extension. `agora verify`'s provenance-closure check can walk the
-+  entire graph — including dynamically grown branches — using exactly the same
-+  algorithm it applies to static DAGs.
++Why does this matter?
 +
-+The invariant can be summarised as: **the past is append-only, the future is
-+forward-only**. A pipeline circle-back is not a loop in the graph — it is a
-+new lineage appended ahead of the failed branch, with no edge reaching backward
-+into already-sealed history.
++- **The engine's dep-resolver is acyclic by assumption.** It iterates
++  over items and checks `depends_on` against a terminal-status map. A
++  cycle would cause the resolver to spin forever. The invariant makes a
++  cycle structurally impossible.
++- **Replay is deterministic.** Because no item can depend on something
++  that doesn't exist yet, replaying the audit log in order always
++  produces a valid state: each `run.extended` entry's `depends_on`
++  references are already present from earlier entries or the original
++  submit.
++- **Provenance closure is total.** `agora verify` walks `depends_on`
++  backward from every terminal item to the inputs. A forward arc would
++  create a reference to a not-yet-existing node — a gap in the closure.
++  The invariant means verify's walk always terminates at known inputs.
++- **Lineages are safe.** A pipeline respawn *feels* like going backward,
++  but the lineage items are new nodes appended after the failed gate.
++  They depend on items already in the graph (backward arcs); nothing in
++  the old branch depends on them (which would be a forward arc into the
++  future). The circle is semantic, not structural.
 +
-+## Interaction with sealing and the tick order
-+
-+The full per-tick order on a pattern-bound queue is:
-+
-+1. **Engine tick** — the standard ready/reconcile/fire/cascade flow.
-+2. **Pattern phase** — `applyPatternPhase(queue)` groups items by `runId`,
-+   builds a de-namespaced view, and calls `collectSpawns(view, pattern)`, which
-+   invokes `pattern.onTaskDone(item, ctx)` once per terminal item.
-+3. **`extendRun` per directive** — each non-null `SpawnDirective` is applied
-+   through `extendRun`, with each spawn failure caught and logged to stderr so
-+   that one bad spawn does not abort the tick.
-+4. **Seal check** — for each `runId` on the queue whose audit epoch is not yet
-+   sealed, if every item is in a terminal status (`done` / `failed` / `skipped`
-+   / `cancelled`), append a `run.completed` audit entry and call
-+   `sealEpoch(runId)`. Both calls are best-effort: an audit failure must not
-+   throw out of `tick()`.
-+
-+Steps 2–3 are a no-op for queues without a pattern (the orchestrator returns
-+immediately when `patterns[queue]` is `undefined`). For queues bound to
-+`staticDag`, the loop still runs but every `onTaskDone` call returns `null`, so
-+no `extendRun` calls happen. In either case the seal check at step 4 always
-+sees the post-extension state, so a run extended in step 3 defers sealing to a
-+future tick — its freshly inserted items are `pending`, not terminal.
-+
-+If the pattern phase produces no spawns (either because no items newly
-+terminated this tick, or because all terminal items were already absorbed by
-+id-skip), steps 2–3 add no overhead beyond the pattern's `onTaskDone` calls,
-+which are expected to be O(terminal items) and free of I/O.
++The invariant is checked mechanically in `validateRun` and re-checked in
++`extendRun` on every spawn. There is no runtime mode that relaxes it.
 +
 +## See also
 +
-+- [How an offload run executes](/agora/explanation/how-offload-runs/) — the core
-+  tick engine that execution patterns sit above.
-+- [plan.json schema](/agora/reference/plan-json/) — the WorkItem fields that
-+  patterns populate when spawning (`depends_on`, `resourceLocks`, `executor`,
-+  `needs`).
-+- [Audit & guarantee tiers](/agora/explanation/audit-guarantee-tiers/) — how
-+  `run.extended` entries are covered by the audit bundle and what `agora verify`
-+  checks.
-+- [Architecture overview](/agora/explanation/architecture-overview/) — where
-+  patterns fit in the whole system.
++- [How an offload run executes](/agora/explanation/how-offload-runs/) —
++  the engine tick, dep-resolver, lock manager, and fire-and-reconcile
++  loop that patterns build on.
++- [plan.json schema](/agora/reference/plan-json/) — the item and edge
++  format that `extendRun` validates against.
++- [Audit & guarantee tiers](/agora/explanation/audit-guarantee-tiers/) —
++  what the `run.extended` entries prove and how they compose with the
++  rest of the audit bundle.
++- [Architecture overview](/agora/explanation/architecture-overview/) —
++  where patterns sit in the full system.

@@ -100,6 +100,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/agora-storage-local
     devDependencies:
+      '@quarry-systems/agora-cli':
+        specifier: workspace:*
+        version: link:../../packages/agora-cli
       tsx:
         specifier: ^4.19.0
         version: 4.22.3
