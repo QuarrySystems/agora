@@ -20,6 +20,7 @@
     "@quarry-systems/agora-storage-local": "workspace:*"
   },
   "devDependencies": {
+    "@quarry-systems/agora-cli": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^5.7.2"
   }

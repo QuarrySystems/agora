@@ -294,6 +294,43 @@ async function main(): Promise<void> {
     }
     if (!bundle) throw new Error('audit export never became available');
 
+    // 11b. PERSIST THE PROOF (the run's whole point — attempt 4's bundle was lost
+    //      to the finally-cleanup; never again). bundle.json is the auditor
+    //      artifact; verify-context.json carries the signer public key + the
+    //      anchored root(s) so a SEPARATE process — `pnpm exec agora verify
+    //      bundle.json` via this example's agora.config.mjs — can re-verify all
+    //      five rows without any access to this run's store or memory.
+    const exampleDir = join(__dirname, '..');
+    await writeFile(join(exampleDir, 'bundle.json'), JSON.stringify(bundle, null, 2));
+    const anchoredRoots = await anchor.fetch({ epochId: runId });
+    await writeFile(
+      join(exampleDir, 'verify-context.json'),
+      JSON.stringify(
+        {
+          runId,
+          publicKey: Buffer.from(signer.publicKey).toString('base64'),
+          anchoredRoots: anchoredRoots.map((a) => ({
+            epochId: a.epochId,
+            root: Buffer.from(a.root).toString('base64'),
+            ...(a.signature
+              ? {
+                  signature: {
+                    alg: a.signature.alg,
+                    ...(a.signature.keyRef !== undefined ? { keyRef: a.signature.keyRef } : {}),
+                    bytes: Buffer.from(a.signature.bytes).toString('base64'),
+                  },
+                }
+              : {}),
+            receipt: a.receipt,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+    console.log('  proof persisted: bundle.json + verify-context.json');
+    console.log('  independent re-verify: pnpm exec agora verify bundle.json --full');
+
     let ok = true; // the four §4 rows AND together into the honest exit code.
 
     // --- Row 1: provenance over the grown graph. -------------------------------
