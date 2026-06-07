@@ -10,6 +10,9 @@ coverage/
 # Environment
 .env
 
+# Deploy artifacts fetched at runtime (the laptop pulls this from the serve stack's bucket)
+deploy/serve-stack/client/public-key.json
+
 # Logs
 *.log
 

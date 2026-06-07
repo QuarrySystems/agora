@@ -1,0 +1,9 @@
+{
+  "id": "smoke-PLACEHOLDER",
+  "queue": "default",
+  "items": [
+    { "id": "smoke-edit-1", "executor": "dispatch-a", "trigger": "manual",
+      "inputs": { "subagent": "smoke-edit" },
+      "depends_on": [], "resourceLocks": [] }
+  ]
+}
