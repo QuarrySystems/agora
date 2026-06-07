@@ -9,14 +9,11 @@
 //   implement (done, not a red gate), so it fires and completes. gate~2 fires and passes.
 //   package~2 fires with needs.work === fix.resultRef (remap correct).
 //
-// NOTE on findings binding: when the gate behavior produces outputRefs.findings, respawn.ts
-//   adds needs.findings.from=gate.id to the fix item. normalizeRun then adds gate.id to
-//   fix.depends_on. The §7 dep-resolver treats the done-but-red gate as blocking → fix
-//   is immediately skipped, causing the whole respawned lineage to collapse. Until the
-//   dep-resolver gains an exception for the fix item consuming a done gate's outputRefs,
-//   the test intentionally omits outputRefs.findings on the gate behavior so that
-//   fix.depends_on === ['implement'] only (not a blocking dep). The failed-gate gateReason
-//   degradation path (Scenario 2) is retained to pin the alternative.
+// §7 data-edge exemption (commit 9fb0ea7): when the gate is done-but-red AND the fix item
+//   has a needs binding with from === gate.id AND select.kind === 'output', that dep is exempt
+//   from the blocking-red predicate. The fix fires normally, its manifest inputRefs carries
+//   BOTH work (=== implement.resultRef) AND findings (=== gate.outputRefs.findings) via the
+//   normal auto-bind + resolve-at-fire path. This test exercises that full path.
 
 import { describe, it, expect } from 'vitest';
 import { SqliteRunStateStore } from '../src/runstate/sqlite.js';
@@ -39,6 +36,10 @@ const REF_IMPL =
 /** The product that 'review-fix-1' produces (the fixed patch artifact). */
 const REF_FIX =
   'agora://ns/artifact/fix/sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+/** The findings artifact produced by the red gate 'review' in its outputRefs. */
+const REF_FINDINGS =
+  'agora://ns/artifact/findings/sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
 
 // ---------------------------------------------------------------------------
 // Run definition
@@ -95,15 +96,15 @@ const RUN_ITEMS: WorkItem[] = [
 /**
  * id-keyed behavior table (done-but-red primary scenario).
  *
- * - 'review' (first attempt): done-but-red (verify.passed===false, NO outputRefs.findings —
- *   see module-level note on the findings binding dep-resolver limitation).
+ * - 'review' (first attempt): done-but-red (verify.passed===false, outputRefs.findings===REF_FINDINGS).
+ *   The §7 data-edge exemption allows the fix to fire despite the gate being done-but-red.
  * - 'review~2' (gate copy after fix): done — green gate.
  * - 'review-fix-1': done + REF_FIX (the fix item).
  * - Everything else (implement, package, package~2): done (implement gets REF_IMPL).
  */
 function behavior(itemId: string) {
   if (itemId === 'review') {
-    return { status: 'done' as const, verify: { passed: false } };
+    return { status: 'done' as const, verify: { passed: false }, outputRefs: { findings: REF_FINDINGS } };
   }
   if (itemId === 'implement') {
     return { status: 'done' as const, resultRef: REF_IMPL };
@@ -123,11 +124,12 @@ describe('pattern-dogfood: circle-back happy path', () => {
   it(
     'done-but-red gate: full circle-back with findings-by-provenance and downstream remap',
     async () => {
-      // Behavior: review (attempt 1) → { status:'done', verify:{passed:false} }
+      // Behavior: review (attempt 1) → { status:'done', verify:{passed:false}, outputRefs:{findings:REF_FINDINGS} }
       // Expected arc: implement done; review done (red); package SKIPPED; review-fix-1 done; review~2 done (green); package~2 done
       // Fix manifest inputRefs.work === REF_IMPL (subject.resultRef)
+      // Fix manifest inputRefs.findings === REF_FINDINGS (gate's findings outputRef, via §7 data-edge exemption)
       // package~2 manifest inputRefs.work === REF_FIX (review-fix-1.resultRef)
-      // verifyBundle: intact=true, handoff.ok=true over the grown graph
+      // verifyBundle: intact=true, handoff.ok=true over the grown graph (findings edge is a done item's outputRef)
 
       const blobs = new Map<string, Uint8Array>();
       const store = new SqliteRunStateStore();
@@ -174,9 +176,11 @@ describe('pattern-dogfood: circle-back happy path', () => {
       const bundle = await assembleBundle(exp, { anchor, storage });
 
       // Fix manifest: inputRefs.work === REF_IMPL (implement's resultRef, the subject's patch product)
+      // Fix manifest: inputRefs.findings === REF_FINDINGS (gate's outputRefs.findings, via §7 data-edge exemption)
       const fixManifest = bundle.manifests.find((m) => m.itemId === 'review-fix-1');
       expect(fixManifest).toBeDefined();
       expect(fixManifest!.inputRefs?.['work']).toBe(REF_IMPL);
+      expect(fixManifest!.inputRefs?.['findings']).toBe(REF_FINDINGS);
 
       // package~2 manifest: inputRefs.work === REF_FIX (remapped from fix item via review-fix-1 resultRef)
       const pkg2Manifest = bundle.manifests.find(
