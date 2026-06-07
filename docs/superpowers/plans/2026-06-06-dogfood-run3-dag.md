@@ -78,22 +78,29 @@ function isBlockingRedGate(item: ItemState): boolean {
 
 ```typescript
 // packages/agora-orchestrator/test/dep-resolver.test.ts (new cases appended to the existing suite)
+// AUDIT NOTE: the file's existing helpers are POSITIONAL — mk(id, deps, status) at :5 and
+// item(id, status, deps) at :47 — and accept neither `verify` nor `inputs`. The red-gate cases
+// need a NEW object-literal helper (or plain ItemState literals); do NOT extend the positional ones.
+function gateItem(over: Partial<ItemState> & { id: string }): ItemState {
+  return { executor: 'dispatch', inputs: {}, depends_on: [], resourceLocks: [], status: 'pending', attempts: 0, runId: 'r', queue: 'q', ...over } as ItemState;
+}
+
 it('a done-but-red GATE blocks readiness and cascades skip to its dependents', () => {
-  const gate = item({ id: 'g', status: 'done', verify: { passed: false }, inputs: { gate: { onRed: 'spawn-fix', subject: 's', fixTemplate: { executor: 'dispatch', inputs: {} } } } });
-  const dep = item({ id: 'd', status: 'pending', depends_on: ['g'] });
+  const gate = gateItem({ id: 'g', status: 'done', verify: { passed: false }, inputs: { gate: { onRed: 'spawn-fix', subject: 's', fixTemplate: { executor: 'dispatch', inputs: {} } } } });
+  const dep = gateItem({ id: 'd', status: 'pending', depends_on: ['g'] });
   expect(computeNewlyReady([gate, dep])).toEqual([]);
   expect(computeSkipped([gate, dep])).toEqual(['d']);
 });
 
 it('a done-but-red NON-gate item does NOT block (report-only verify)', () => {
-  const red = item({ id: 'n', status: 'done', verify: { passed: false }, inputs: {} });
-  const dep = item({ id: 'd', status: 'pending', depends_on: ['n'] });
+  const red = gateItem({ id: 'n', status: 'done', verify: { passed: false } });
+  const dep = gateItem({ id: 'd', status: 'pending', depends_on: ['n'] });
   expect(computeNewlyReady([red, dep])).toEqual(['d']);
   expect(computeSkipped([red, dep])).toEqual([]);
 });
 ```
 
-Also cover: green gate (verify absent or passed !== false) passes dependents normally; a gate COPY (`g~2`) carrying the same `inputs.gate` blocks identically (copies inherit `inputs` via `toWorkItemFields`). Follow the existing suite's item-fixture helper conventions (read the file first). All PRE-EXISTING cases in `dep-resolver.test.ts`, `tick.test.ts`, `orchestrator-cancel.test.ts` must pass unmodified.
+(Adapt the helper's required-field set to the real `ItemState` — read `contracts/types.ts` first; the shape above is illustrative.) Also cover: green gate (verify absent or passed !== false) passes dependents normally; a gate COPY (`g~2`) carrying the same `inputs.gate` blocks identically (copies inherit `inputs` via `toWorkItemFields`). All PRE-EXISTING cases in `dep-resolver.test.ts`, `tick.test.ts`, `orchestrator-cancel.test.ts` must pass unmodified.
 
 ## Acceptance criteria
 
@@ -164,6 +171,14 @@ Upgrade the offline proof so it exercises the SAME arc as run 3 (this is what ma
 // review (attempt 1): { status: 'done', verify: { passed: false }, outputRefs: { findings: fakeRef('findings-1') } }
 // review~2:           { status: 'done' }  // green re-gate
 // package: skipped via the §7 cascade (no behavior entry fires for it on attempt 1)
+//
+// AUDIT NOTE (required widening): the example's LOCAL ItemBehavior type is
+// `{ status: 'done' | 'failed'; resultRef?: string }` (index.ts:55) and its reconcile forwards
+// ONLY status+resultRef (index.ts:98-102) — it has NO verify/outputRefs plumbing. You MUST
+// (a) widen ItemBehavior with `verify?: { passed: boolean }` and `outputRefs?: Record<string,string>`,
+// and (b) extend reconcile's return to forward both — mirror test/fixtures/pattern-harness.ts:71-77.
+// Without this the done-but-red signal never reaches the engine. (The int-test twin does NOT need
+// this — its idKeyedExecutor fixture already supports both; the asymmetry is expected.)
 ```
 
 ```typescript
@@ -233,7 +248,7 @@ model_hint: cheap
 is_wiring_task: true
 ```
 
-Append a dated amendment to the pattern-layer spec: the "engine zero diff" headline gains one scoped exception, pulled by the first live gated run — the §7 failed-like predicate in dep-resolver (red gate blocks dependents). State why the original arc was incomplete (done-but-red never skipped descendants; the offline demo used a failed gate, which loses findings) and link the run-3 spec. Match the spec's existing amendment-section conventions (the file already carries dated amendments — read them first).
+Append a clearly-dated amendment to the pattern-layer spec: the "engine zero diff" headline gains one scoped exception, pulled by the first live gated run — the §7 failed-like predicate in dep-resolver (red gate blocks dependents). State why the original arc was incomplete (done-but-red never skipped descendants; the offline demo used a failed gate, which loses findings) and link the run-3 spec. AUDIT NOTE: the spec has NO prior amendment-section template (only an inline `(amendment)` reference near the top) — create one: a new `## Amendment (2026-06-06): red gates block dependents` section at the end of the file. Original text untouched.
 
 ## Acceptance criteria
 
@@ -281,7 +296,7 @@ The plan.json instructions fields may reference config.ts text or inline it — 
 ## Acceptance criteria
 
 - `plan.json` validates the spec literal: 3 items, gate `inputs.gate` complete (onRed/subject/maxFixAttempts/fixTemplate with executor+inputs.subagent+resourceLocks), needs edges on fact-check and announce, resourceLocks per spec, `depends_on: []` everywhere.
-- `config.ts` compiles standalone (`tsc --noEmit` strict, run-2 example tsconfig conventions) and every seed path exists in the repo.
+- `config.ts` compiles standalone (`tsc --noEmit` strict, run-2 example tsconfig conventions) and every seed path exists in the repo. AUDIT NOTE: seed paths are FULL repo-relative — e.g. `packages/agora-orchestrator/src/contracts/pattern.ts` and the five `packages/agora-orchestrator/src/patterns/*.ts` files (map-reduce, pipeline, respawn, scan, static-dag) — not the spec's shorthand.
 - Findings contract text includes the exact-filename rule (`outputs/findings`, no extension).
 
 Test file: n/a (validated by the driver task's typecheck + the live run; plan.json shape re-checked by reviewer against `contracts/pattern.ts`).
