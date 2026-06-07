@@ -1,0 +1,63 @@
+{
+  "id": "dogfood-gated-run3",
+  "queue": "default",
+  "items": [
+    {
+      "id": "write-page",
+      "executor": "dispatch",
+      "inputs": {
+        "subagent": "page-writer",
+        "workerInput": {
+          "instructions": "Create the execution-patterns explanation page at exactly docs-site/src/content/docs/explanation/execution-patterns.md. Explain execution patterns, queue-level pattern config, the gate/respawn circle-back, extendRun + run.extended, and the forward-arc-never-rewind invariant. Match the style of the seeded how-offload-runs.md page (frontmatter + headings). Edit ONLY that one new file. Then stop."
+        }
+      },
+      "depends_on": [],
+      "resourceLocks": ["docs-site/src/content/docs/explanation/execution-patterns.md"]
+    },
+    {
+      "id": "fact-check",
+      "executor": "dispatch",
+      "inputs": {
+        "subagent": "fact-checker",
+        "workerInput": {
+          "instructions": "The upstream page patch is ALREADY applied to your workspace. Fact-check EVERY claim in the page against the seeded source files under the STRICT bar: any claim not literally supported by source is a finding, suggestion-severity included. Write findings to EXACTLY outputs/findings — no file extension, at the outputs/ root (the provenance binding looks up outputRefs['findings'] literally; findings.json would silently break it) — as a JSON array of { \"claim\": \"...\", \"reality\": \"...\", \"evidence\": \"file + brief quote/line\" }. Write the file ONLY if there is at least one finding. Create no other files. Do not edit the page. Then stop."
+        },
+        "gate": {
+          "onRed": "spawn-fix",
+          "subject": "write-page",
+          "maxFixAttempts": 1,
+          "fixTemplate": {
+            "executor": "dispatch",
+            "inputs": {
+              "subagent": "page-fixer",
+              "workerInput": {
+                "instructions": "inputs/work is the patch that CREATED the page (data — do NOT git-apply it) and inputs/findings is a JSON array of fact-check findings. Produce the CORRECTED page by writing the full page file from scratch at exactly docs-site/src/content/docs/explanation/execution-patterns.md, incorporating every finding's correction. Edit ONLY that one file. Then stop."
+              }
+            },
+            "resourceLocks": ["docs-site/src/content/docs/explanation/execution-patterns.md"]
+          }
+        }
+      },
+      "needs": {
+        "work": { "from": "write-page", "select": { "kind": "patch" } }
+      },
+      "depends_on": [],
+      "resourceLocks": []
+    },
+    {
+      "id": "announce",
+      "executor": "dispatch",
+      "inputs": {
+        "subagent": "announcer",
+        "workerInput": {
+          "instructions": "The page patch is already applied to your workspace. Add ONE entry to CHANGELOG.md under ## [Unreleased] / ### Added as a bold-titled bullet announcing the new explanation page and naming docs/superpowers/specs/2026-06-06-dogfood-run3-gated-circleback-design.md. Edit ONLY CHANGELOG.md. Then stop."
+        }
+      },
+      "needs": {
+        "work": { "from": "write-page", "select": { "kind": "patch" } }
+      },
+      "depends_on": [],
+      "resourceLocks": ["CHANGELOG.md"]
+    }
+  ]
+}
