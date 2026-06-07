@@ -258,10 +258,10 @@ Runs `test/smoke.test.ts` with vitest. Verifies:
   `dispatch-a` / `dispatch-b`, two contending on `shared.ts`, `verify` gate
   `depends_on` all four.
 
-The MinIO integration tests (`test/aws-s3-mailbox-client.test.ts`,
-`test/aws-s3-lock-client.test.ts`) and the e2e suite (`test/e2e.test.ts`) are
-**skipped** unless `AGORA_S3_ENDPOINT` (integration) or `AGORA_RUN_E2E`
-(e2e) are set.
+The MinIO integration tests (`packages/agora-storage-s3/test/aws-s3-mailbox-client.test.ts`,
+`packages/agora-storage-s3/test/aws-s3-lock-client.test.ts`) and the e2e suite
+(`test/e2e.test.ts`) are **skipped** unless `AGORA_S3_ENDPOINT` (integration)
+or `AGORA_RUN_E2E` (e2e) are set.
 
 ### Live e2e (requires full compose stack)
 
@@ -292,8 +292,9 @@ spend is Anthropic token usage: each of the four edits invokes the real
 
 Once a paying reason justifies the real run, Tier-2 is a seam swap — no new code:
 
-1. Promote `AwsS3MailboxClient` / `AwsS3LockClient` to `agora-storage-s3`
-   (a second consumer now exists).
+1. ~~Promote `AwsS3MailboxClient` / `AwsS3LockClient` to `agora-storage-s3`~~ —
+   **DONE**: the adapters now live in `agora-storage-s3`; the `deploy/serve-stack`
+   deployment is the second consumer that triggered this promotion.
 2. Drop the `AGORA_S3_ENDPOINT` override so the AWS SDK targets real S3. Swap
    `createLocalSigner()` → `KmsSigner`.
 3. Move the already-containerized `serve` from compose onto **Fargate** with an

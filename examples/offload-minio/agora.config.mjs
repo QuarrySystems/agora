@@ -29,8 +29,7 @@ import {
   verifyEd25519,
 } from '@quarry-systems/agora-orchestrator';
 
-import { AwsS3MailboxClient } from './src/aws-s3-mailbox-client.js';
-import { AwsS3LockClient } from './src/aws-s3-lock-client.js';
+import { AwsS3MailboxClient, AwsS3LockClient } from '@quarry-systems/agora-storage-s3';
 
 // ---------------------------------------------------------------------------
 // Shared S3 client — built once, reused for storage + mailbox + anchor.
