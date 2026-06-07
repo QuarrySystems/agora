@@ -13,6 +13,7 @@ flowchart TD
     task-changelog["task-changelog: CHANGELOG entry<br/>files: CHANGELOG.md"]
 
     task-adapter-promotion --> task-example-rewire
+    task-adapter-promotion --> task-deploy-package
     task-adapter-promotion --> task-deploy-configs
     task-deploy-package --> task-deploy-configs
     task-deploy-configs --> task-runbook
@@ -49,11 +50,14 @@ files:
   - packages/agora-storage-s3/src/aws-s3-mailbox-client.ts
   - packages/agora-storage-s3/src/aws-s3-lock-client.ts
   - packages/agora-storage-s3/src/index.ts
+  - packages/agora-storage-s3/package.json
   - packages/agora-storage-s3/test/aws-s3-mailbox-client.test.ts
   - packages/agora-storage-s3/test/aws-s3-lock-client.test.ts
 status: pending
 model_hint: standard
 ```
+
+AUDIT-PINNED DEPENDENCY: both adapters TYPE-import `MailboxS3Client`/`S3LockClient` from `@quarry-systems/agora-orchestrator` (mailbox-client.ts:2 / lock-client.ts:2) — add it to storage-s3's package.json as a **devDependency** (imports are type-only; runtime consumers already depend on the orchestrator directly; no cycle — orchestrator does not depend on storage-s3). Do NOT run `pnpm install` (the lockfile is owned by task-deploy-package, which now depends on this task and regenerates it once).
 
 The one product change (spec §3, audit #5 — the example README's own second-consumer trigger). MOVE `AwsS3MailboxClient` and `AwsS3LockClient` from `examples/offload-minio/src/` into `agora-storage-s3` as exported classes (verbatim semantics — this is a promotion, not a rewrite; ~30 lines each), export from the package barrel, and bring their integration tests across (`examples/offload-minio/test/aws-s3-mailbox-client.test.ts` / `aws-s3-lock-client.test.ts` — keep the `AGORA_S3_ENDPOINT`-gated skip convention so they stay CI/local-optional exactly as today). Do NOT touch the example's files (a sibling task rewires it).
 
@@ -91,11 +95,13 @@ files:
   - examples/offload-minio/src/aws-s3-mailbox-client.ts
   - examples/offload-minio/src/aws-s3-lock-client.ts
   - examples/offload-minio/test/aws-s3-mailbox-client.test.ts
+  - examples/offload-minio/test/aws-s3-lock-client.test.ts
+  - examples/offload-minio/README.md
 status: pending
 model_hint: standard
 ```
 
-Delete the example's local adapter copies and import from `@quarry-systems/agora-storage-s3` everywhere they were used (grep the example for both class names first — config, src/index.ts driver?, serve-entrypoint, tests; anything in scope beyond the listed files → STOP and report BLOCKED with the list rather than expanding scope silently). The example's own integration test files either delete (suites moved in the promotion task) or become thin re-export shims — DELETE is correct (no duplicate suites); update the example README's test section ONLY if it names the deleted files (check; if README needs an edit, report DONE_WITH_CONCERNS naming the line rather than editing out-of-scope).
+Delete the example's local adapter copies (BOTH src files AND both test twins — the lock test imports the source it would otherwise dangle on) and import from `@quarry-systems/agora-storage-s3` everywhere they were used (grep both class names across the example first; the example's package.json ALREADY depends on storage-s3 — audit-verified, no manifest change). UNCONDITIONAL README edit (audit #4): README.md:261-262 names both deleted test paths — update the test section to point at the promoted suites in `packages/agora-storage-s3/test/`, and update the :295 Tier-2 promotion-trigger note to record that it has FIRED (this deploy is the second consumer).
 
 ## Implementation
 
@@ -121,7 +127,7 @@ Test file: existing example suites (offline smoke).
 
 ```yaml
 id: task-deploy-package
-depends_on: []
+depends_on: [task-adapter-promotion]
 files:
   - deploy/serve-stack/package.json
   - deploy/serve-stack/Dockerfile
@@ -137,8 +143,8 @@ The scaffold (spec §3 rows 1; audit #2): add `deploy/*` to `pnpm-workspace.yaml
 
 ## Acceptance criteria
 
-- `pnpm install` succeeds with the new member; lockfile delta confined; `pnpm -r build` unaffected (the package has no build script or a no-op).
-- `Dockerfile` copies `deploy/` in addition to the example shape; CMD targets this package's entrypoint (no live build required at this stage — `docker compose config` validates later; a syntax-only `docker build --check`-style validation if available, else reviewed-by-reading).
+- `pnpm install` succeeds with the new member (this regenerates the lockfile ONCE for both the new package and the promotion task's storage-s3 devDep — single-owner); `pnpm -r build` unaffected (the package has no build script or a no-op).
+- `Dockerfile` copies `deploy/` in addition to the example shape; **CMD is `["node", "deploy/serve-stack/serve-entrypoint.mjs"]` — plain node, NOT the example's tsx** (audit #5: the example needs tsx only because its config imports TS sources; the deploy config is pure .mjs importing built dist; this package deliberately has no tsx dep).
 - Entrypoint mirrors the example's signal handling; export-name contract with the config stated in a comment.
 
 Test file: n/a (wiring; compose-config gate + the live runbook validate).
@@ -155,9 +161,12 @@ files:
   - deploy/serve-stack/client/smoke.mjs
   - deploy/serve-stack/.env.example
   - deploy/serve-stack/docker-compose.yml
+  - deploy/serve-stack/scripts/init-buckets.sh
 status: pending
 model_hint: opus
 ```
+
+AUDIT #3: `minio-init` bind-mounts `scripts/init-buckets.sh` — COPY the example's script into this stack (mounting the example's path would couple the "tear-downable as a unit" stack to example internals; ~40 duplicated shell lines is the accepted SoC trade, same judgement as the per-dir configs).
 
 The heart of the deployment (spec §3 — every row's audit-pinned details are binding; READ the spec AND `examples/offload-minio/{agora.config.mjs,docker-compose.yml}` first — the example is the proven template, the spec lists the exact deltas):
 
@@ -191,6 +200,7 @@ node --check deploy/serve-stack/client/smoke.mjs
 ## Acceptance criteria
 
 - Compose config gate green (with a populated `.env` stub during the check); both configs + smoke parse; serve config performs NO top-level I/O beyond what the example's does (import-safe).
+- The example's healthchecks, pinned upstream image tags (minio/localstack/mc release pins), and `depends_on` conditions are PRESERVED verbatim in the deploy compose (audit #7 — binding, not implied).
 - All audit-pinned details present: `:main` image, gated queue (default queue patternless), seed persistence + 0600, raw-put publication, promoted-adapter imports, executor names matching the smoke plan, fresh smoke run ids.
 - Client config exports default + orch; verify path lazy/best-effort.
 
@@ -213,6 +223,7 @@ The ops half, documenting the LANDED artifacts (claims artifact-verified — rea
 ## Acceptance criteria
 
 - All nine spec-§4 steps present, ordered, with copy-pasteable commands that match the landed compose/config/smoke files exactly (paths, service names, env names).
+- The public-key fetch step carries a copy-pasteable command (the bucket is authed S3: an `aws s3 cp --endpoint-url http://localhost:9000 s3://agora-data/public-key.json deploy/serve-stack/client/public-key.json` line with the minio creds, or the `mc` equivalent — audit #6).
 - The §5 operational acceptance list reproduced as the final checklist.
 
 Test file: n/a.
