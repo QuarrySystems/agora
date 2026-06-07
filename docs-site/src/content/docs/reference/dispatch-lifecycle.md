@@ -133,8 +133,9 @@ interface RuntimeUsage {
 ```
 
 `usage` is **best-effort**: it is absent whenever the runtime's output cannot
-be parsed. Its presence does not affect the sentinel's content hash for any
-other fields — it is additive and backward-compatible.
+be parsed. Its absence leaves the sentinel byte-identical to the pre-usage
+shape; when present it is additive and backward-compatible — older readers
+ignore the extra key.
 
 #### Three durations distinguished
 
@@ -144,7 +145,7 @@ different things:
 | Field | What it measures |
 |---|---|
 | `usage.durationMs` (in the sentinel) | Model time as reported by the runtime CLI for that invocation. |
-| `DispatchResult.durationMs` | Worker wall time from container start to reconcile. |
+| `DispatchResult.durationMs` | Worker wall time (container start to result collection). |
 | `BlockOutcome.durationMs` (declared pipelines only) | Wall time for a single block within the pipeline. |
 
 `usage` is a **capture-only** boundary: it is sealed into the sentinel and
