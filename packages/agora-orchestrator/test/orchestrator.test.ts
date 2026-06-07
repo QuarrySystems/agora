@@ -159,6 +159,33 @@ describe('run-scoped item ids', () => {
     expect(st.find((s) => s.id === 'step2')!.blockedBy).toEqual(['step1']); // de-namespaced
     expect(st.find((s) => s.id === 'step2')!.runId).toBe('dep-run');
   });
+
+  it('getStatus publishes full depends_on alongside blockedBy', () => {
+    const store = new SqliteRunStateStore();
+    const orch = new AgoraOrchestrator({ store, executors: {}, triggers: { manual: new ManualTrigger() }, queues: { default: { concurrency: 2 } } });
+    const depRun = { id: 'dep-run', queue: 'default', items: [
+      { id: 'step1', executor: 'x', inputs: {}, depends_on: [], resourceLocks: [] },
+      { id: 'step2', executor: 'x', inputs: {}, depends_on: ['step1'], resourceLocks: [] },
+      { id: 'step3', executor: 'x', inputs: {}, depends_on: ['step2'], resourceLocks: [] },
+    ]};
+    orch.submitRun(depRun);
+    const st = orch.getStatus('dep-run');
+
+    // step1 has no dependencies
+    expect(st.find((s) => s.id === 'step1')!.depends_on).toEqual([]);
+
+    // step2 depends on step1, and it is not done yet, so blockedBy = depends_on
+    const step2 = st.find((s) => s.id === 'step2')!;
+    expect(step2.depends_on).toEqual(['step1']);
+    expect(step2.blockedBy).toEqual(['step1']);
+
+    // step3 depends on step2, and it is not done yet, so blockedBy = depends_on
+    const step3 = st.find((s) => s.id === 'step3')!;
+    expect(step3.depends_on).toEqual(['step2']);
+    expect(step3.blockedBy).toEqual(['step2']);
+
+    store.close();
+  });
 });
 
 describe('submitRun validation gate', () => {
