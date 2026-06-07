@@ -196,8 +196,11 @@ export function buildRunView(args: {
   for (const s of status ?? []) counts[s.status] = (counts[s.status] ?? 0) + 1;
   let costUsd = 0;
   for (const n of nodes) costUsd += n.usage?.costUsd ?? 0;
+  // Empty status counts as pre-run (quality-review hardening): a polling caller can
+  // legitimately see [] before the first status publishes; vacuous `every` would
+  // otherwise misreport 'terminal'.
   const state: RunView['footer']['state'] =
-    status === undefined
+    status === undefined || status.length === 0
       ? 'pre-run'
       : status.every((s) => TERMINAL.has(s.status))
         ? 'terminal'
