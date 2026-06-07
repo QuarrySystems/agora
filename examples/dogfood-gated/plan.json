@@ -8,7 +8,7 @@
       "inputs": {
         "subagent": "page-writer",
         "workerInput": {
-          "instructions": "Create the execution-patterns explanation page at exactly docs-site/src/content/docs/explanation/execution-patterns.md. Explain execution patterns, queue-level pattern config, the gate/respawn circle-back, extendRun + run.extended, and the forward-arc-never-rewind invariant. Match the style of the seeded how-offload-runs.md page (frontmatter + headings). Edit ONLY that one new file. Then stop."
+          "instructions": "Create the execution-patterns explanation page at exactly docs-site/src/content/docs/explanation/execution-patterns.md. Explain execution patterns, queue-level pattern config, the gate/respawn circle-back, extendRun + run.extended, and the forward-arc-never-rewind invariant. Match the style of the seeded how-offload-runs.md page: two-key frontmatter (title: and description:), then body prose with ## headings. Edit ONLY that one new file. Then stop."
         }
       },
       "depends_on": [],
@@ -31,7 +31,7 @@
             "inputs": {
               "subagent": "page-fixer",
               "workerInput": {
-                "instructions": "inputs/work is the patch that CREATED the page (data — do NOT git-apply it) and inputs/findings is a JSON array of fact-check findings. Produce the CORRECTED page by writing the full page file from scratch at exactly docs-site/src/content/docs/explanation/execution-patterns.md, incorporating every finding's correction. Edit ONLY that one file. Then stop."
+                "instructions": "Your workspace does NOT contain the page. inputs/work is the unified-diff patch that CREATED the page — its added (+) lines hold the full page text; READ it to recover the page content, do NOT git-apply it. inputs/findings is a JSON array of { claim, reality, evidence } fact-check findings. Reconstruct the page from the patch content, correct every finding (keep everything the findings do not dispute), and write the complete corrected file at exactly docs-site/src/content/docs/explanation/execution-patterns.md. Edit ONLY that one file. Then stop."
               }
             },
             "resourceLocks": ["docs-site/src/content/docs/explanation/execution-patterns.md"]
@@ -50,7 +50,7 @@
       "inputs": {
         "subagent": "announcer",
         "workerInput": {
-          "instructions": "The page patch is already applied to your workspace. Add ONE entry to CHANGELOG.md under ## [Unreleased] / ### Added as a bold-titled bullet announcing the new explanation page and naming docs/superpowers/specs/2026-06-06-dogfood-run3-gated-circleback-design.md. Edit ONLY CHANGELOG.md. Then stop."
+          "instructions": "The page patch is already applied to your workspace — the new page is at docs-site/src/content/docs/explanation/execution-patterns.md; read its frontmatter title for the entry. Add ONE entry to CHANGELOG.md under ## [Unreleased] / ### Added as a bold-titled bullet (use the page's title) announcing the new explanation page and naming docs/superpowers/specs/2026-06-06-dogfood-run3-gated-circleback-design.md. Edit ONLY CHANGELOG.md. Then stop."
         }
       },
       "needs": {
