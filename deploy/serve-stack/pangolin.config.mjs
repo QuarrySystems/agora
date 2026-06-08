@@ -1,19 +1,19 @@
-// deploy/serve-stack/agora.config.mjs — serve-side operator config (always-on stack).
+// deploy/serve-stack/pangolin.config.mjs — serve-side operator config (always-on stack).
 //
 // Exports:
-//   default / client  — wired AgoraClient (namespace 'serve-stack')
+//   default / client  — wired PangolinClient (namespace 'serve-stack')
 //   orch              — OrchContext: { transport, storage, anchor, verifySignature, createOrchestrator }
 //
-// IMPORT-SAFE: no throw at load when ANTHROPIC_API_KEY / AGORA_S3_ENDPOINT are absent.
+// IMPORT-SAFE: no throw at load when ANTHROPIC_API_KEY / PANGOLIN_S3_ENDPOINT are absent.
 // No SQLite opened at module level — only inside createOrchestrator() (D3 single-writer).
 // No filesystem I/O at module level either — the persisted signer seed is read /
 // created lazily inside getSigner() (first call from createOrchestrator() or
 // verifySignature()), matching the example's import-safety posture.
 //
-// Deltas from examples/offload-minio/agora.config.mjs (spec §3, audit-pinned):
+// Deltas from examples/offload-minio/pangolin.config.mjs (spec §3, audit-pinned):
 //   - Persisted signer seed (/data volume) instead of the deterministic dev seed.
-//   - Public key published to s3://agora-data/public-key.json on serve start.
-//   - workerImage pinned to ghcr.io/quarrysystems/agora-worker:main (never :latest).
+//   - Public key published to s3://pangolin-data/public-key.json on serve start.
+//   - workerImage pinned to ghcr.io/quarrysystems/pangolin-worker:main (never :latest).
 //   - A dedicated `gated` queue carrying the pipeline pattern; `default` stays patternless.
 
 import { tmpdir } from 'node:os';
@@ -22,16 +22,16 @@ import { randomBytes, createPrivateKey, createPublicKey, sign as edSign } from '
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { AgoraClient, NoopCredentialProvider, StdoutResultSink } from '@quarry-systems/agora-client';
-import { LocalDockerProvider } from '@quarry-systems/agora-providers-local-docker';
-import { AwsSecretStore } from '@quarry-systems/agora-secret-store';
+import { PangolinClient, NoopCredentialProvider, StdoutResultSink } from '@quarry-systems/pangolin-client';
+import { LocalDockerProvider } from '@quarry-systems/pangolin-providers-local-docker';
+import { AwsSecretStore } from '@quarry-systems/pangolin-secret-store';
 import {
   S3StorageProvider,
   AwsS3MailboxClient,
   AwsS3LockClient,
-} from '@quarry-systems/agora-storage-s3';
+} from '@quarry-systems/pangolin-storage-s3';
 import {
-  AgoraOrchestrator,
+  PangolinOrchestrator,
   SqliteRunStateStore,
   ManualTrigger,
   DispatchExecutor,
@@ -41,40 +41,40 @@ import {
   MailboxSubmissionTransport,
   pipeline,
   verifyEd25519,
-} from '@quarry-systems/agora-orchestrator';
+} from '@quarry-systems/pangolin-orchestrator';
 
 // ---------------------------------------------------------------------------
 // Shared S3 client — built once, reused for storage + mailbox + anchor +
 // public-key publication. Safe at module level: no I/O in the SDK constructor.
 // ---------------------------------------------------------------------------
 const s3 = new S3Client({
-  endpoint: process.env.AGORA_S3_ENDPOINT,
+  endpoint: process.env.PANGOLIN_S3_ENDPOINT,
   forcePathStyle: true,
   region: 'us-east-1',
   credentials: {
-    accessKeyId: process.env.AGORA_S3_ACCESS_KEY ?? 'minioadmin',
-    secretAccessKey: process.env.AGORA_S3_SECRET_KEY ?? 'minioadmin',
+    accessKeyId: process.env.PANGOLIN_S3_ACCESS_KEY ?? 'minioadmin',
+    secretAccessKey: process.env.PANGOLIN_S3_SECRET_KEY ?? 'minioadmin',
   },
 });
 
 // Pinned GHCR tag — explicitly NOT ':latest' (spec audit #1; ':main' is mutable,
 // true digest pinning is the deferred imageDigest item).
-const workerImage = 'ghcr.io/quarrysystems/agora-worker:main';
+const workerImage = 'ghcr.io/quarrysystems/pangolin-worker:main';
 
 // ---------------------------------------------------------------------------
 // Storage, transport, and anchor — safe at module level (constructors only).
 // ---------------------------------------------------------------------------
-const storage = new S3StorageProvider({ bucket: 'agora-data', client: s3 });
+const storage = new S3StorageProvider({ bucket: 'pangolin-data', client: s3 });
 
 const transport = new MailboxSubmissionTransport(
   new S3Mailbox(
-    new AwsS3MailboxClient({ client: s3, bucket: 'agora-data', prefix: 'mailbox/' }),
+    new AwsS3MailboxClient({ client: s3, bucket: 'pangolin-data', prefix: 'mailbox/' }),
   ),
 );
 
 const anchor = new S3ObjectLockAnchor(
-  new AwsS3LockClient({ client: s3, bucket: 'agora-audit' }),
-  'agora-audit',
+  new AwsS3LockClient({ client: s3, bucket: 'pangolin-audit' }),
+  'pangolin-audit',
 );
 
 // ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ const anchor = new S3ObjectLockAnchor(
 // deterministic dev seed: first boot generates a random 32-byte seed and
 // persists it (mode 0600) on the serve volume; every later boot reads it back
 // and rebuilds the same ed25519 keypair via the example's own PKCS8/SPKI
-// construction (agora.config.mjs:77-92 in offload-minio). Lazy: file I/O only
+// construction (pangolin.config.mjs:77-92 in offload-minio). Lazy: file I/O only
 // on first use, never at import time.
 // ---------------------------------------------------------------------------
 const SIGNER_KEY_REF = 'serve-stack-persisted';
@@ -96,7 +96,7 @@ let _signer;
  */
 export function getSigner() {
   if (_signer) return _signer;
-  const seedPath = process.env.AGORA_SIGNER_SEED_PATH ?? '/data/signer-seed.hex';
+  const seedPath = process.env.PANGOLIN_SIGNER_SEED_PATH ?? '/data/signer-seed.hex';
   let seed;
   if (existsSync(seedPath)) {
     seed = Buffer.from(readFileSync(seedPath, 'utf8').trim(), 'hex');
@@ -129,7 +129,7 @@ export function getSigner() {
 // Idempotent overwrite on every serve start.
 async function publishPublicKey(signer) {
   await s3.send(new PutObjectCommand({
-    Bucket: 'agora-data',
+    Bucket: 'pangolin-data',
     Key: 'public-key.json',
     Body: JSON.stringify({
       keyRef: signer.keyRef,
@@ -154,9 +154,9 @@ const queues = {
 };
 
 // ---------------------------------------------------------------------------
-// AgoraClient — lazy: no Docker / network until dispatch fires.
+// PangolinClient — lazy: no Docker / network until dispatch fires.
 // ---------------------------------------------------------------------------
-export const client = new AgoraClient({
+export const client = new PangolinClient({
   namespace: 'serve-stack',
   compute: {
     'local-docker': new LocalDockerProvider({
@@ -168,9 +168,9 @@ export const client = new AgoraClient({
       extraHosts: ['host.docker.internal:host-gateway'],
       extraEnv: {
         // S3 (MinIO) storage bootstrap — needed at worker boot, before bundles.
-        AGORA_S3_ENDPOINT: process.env.AGORA_S3_ENDPOINT ?? '',
-        AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID ?? process.env.AGORA_S3_ACCESS_KEY ?? 'minioadmin',
-        AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY ?? process.env.AGORA_S3_SECRET_KEY ?? 'minioadmin',
+        PANGOLIN_S3_ENDPOINT: process.env.PANGOLIN_S3_ENDPOINT ?? '',
+        AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID ?? process.env.PANGOLIN_S3_ACCESS_KEY ?? 'minioadmin',
+        AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY ?? process.env.PANGOLIN_S3_SECRET_KEY ?? 'minioadmin',
         AWS_REGION: process.env.AWS_REGION ?? 'us-east-1',
         // Secrets Manager (LocalStack) endpoint so the worker's AwsSecretStore
         // resolves per-dispatch secret refs cross-container. The AWS SDK honors
@@ -221,7 +221,7 @@ function makeExecutors() {
 // CRITICAL (D3 single-writer): SqliteRunStateStore is ONLY opened inside this
 // factory. The serve container calls createOrchestrator(); the laptop client
 // uses orch.transport / orch.anchor / orch.storage / orch.verifySignature via
-// client/agora.config.mjs. Importing this module does NOT create or open any
+// client/pangolin.config.mjs. Importing this module does NOT create or open any
 // .db file, nor touch the signer seed file.
 // ---------------------------------------------------------------------------
 function createOrchestrator() {
@@ -233,10 +233,10 @@ function createOrchestrator() {
     console.error('[config] public-key publication failed (laptop verify will lack the key):', err);
   });
   const store = new SqliteRunStateStore(
-    process.env.AGORA_DB_PATH ?? join(tmpdir(), 'agora-serve-stack.db'),
+    process.env.PANGOLIN_DB_PATH ?? join(tmpdir(), 'pangolin-serve-stack.db'),
   );
   const auditLog = new AuditLog({ store, signer, anchor });
-  return new AgoraOrchestrator({
+  return new PangolinOrchestrator({
     store,
     executors: makeExecutors(),
     triggers,
