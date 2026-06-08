@@ -1,11 +1,11 @@
 ---
-title: AgoraClient API
-description: AgoraClient constructor options and the capabilities / subagent / env / dispatch namespaced surfaces.
+title: PangolinClient API
+description: PangolinClient constructor options and the capabilities / subagent / env / dispatch namespaced surfaces.
 sidebar:
   order: 3
 ---
 
-`AgoraClient` (from `@quarry-systems/agora-client`) is the single caller-side
+`PangolinClient` (from `@quarry-systems/pangolin-client`) is the single caller-side
 entry point integrators construct. The constructor validates the option shape
 and holds the wired-in providers; namespaced sub-APIs
 (`capabilities`, `subagent`, `env`, `pipeline`, `dispatch`) are installed on
@@ -14,7 +14,7 @@ the prototype when the barrel is imported.
 ## Constructor options
 
 ```typescript
-new AgoraClient(opts: AgoraClientOptions)
+new PangolinClient(opts: PangolinClientOptions)
 ```
 
 | Option | Type | Required | Notes |
@@ -96,7 +96,7 @@ over the agent's edit before sealing; its `{ passed, report, durationMs }` resul
 is recorded in the output sentinel and surfaced on the dispatch result. It is
 report-only (a failed verify never fails the dispatch) and only present in the
 stored definition when set (so subagents without it keep their content hash).
-See [Dispatch lifecycle → Self-verify](/agora/reference/dispatch-lifecycle/#self-verify-optional).
+See [Dispatch lifecycle → Self-verify](/pangolin-scale/reference/dispatch-lifecycle/#self-verify-optional).
 
 ## `client.env`
 
@@ -128,7 +128,7 @@ register(spec: PipelineSpec): Promise<PipelineRef>
 ```
 
 Registers a declared block-pipeline spec (see
-[Dispatch lifecycle → The block-pipeline runner](/agora/reference/dispatch-lifecycle/#the-block-pipeline-runner)).
+[Dispatch lifecycle → The block-pipeline runner](/pangolin-scale/reference/dispatch-lifecycle/#the-block-pipeline-runner)).
 The spec is structurally validated first — **collect-all**: every error is
 surfaced in one throw, not just the first — then content-addressed over its
 canonical-JSON (sorted-key) serialization and stored as a pinned immutable
@@ -161,7 +161,7 @@ const ref = await client.pipeline.register({
 
 `list()` is a deferred catalog surface — like `capabilities` / `subagent` /
 `env` enumeration, it waits on a `listNames` extension to `StorageProvider`;
-use `agora pipeline register`'s printed ref (or a known id) in the meantime.
+use `pangolin pipeline register`'s printed ref (or a known id) in the meantime.
 
 ## `client.dispatch`
 
@@ -180,7 +180,7 @@ client.dispatch.cancel(dispatchId: string): Promise<void>
 `callback`, `timeoutSeconds`, `retentionDays`, `resources`, `dispatchId`,
 `model`) come from `DispatchWork`. `capabilities` REPLACES the subagent's
 assigned set; `addCapabilities` APPENDS to it; combining both throws. See the
-[Dispatch lifecycle](/agora/reference/dispatch-lifecycle/) for what happens
+[Dispatch lifecycle](/pangolin-scale/reference/dispatch-lifecycle/) for what happens
 after the call.
 
 ### `model` field and level vocabulary

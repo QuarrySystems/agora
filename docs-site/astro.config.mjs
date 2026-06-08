@@ -6,21 +6,25 @@ import starlightLinksValidator from 'starlight-links-validator';
 
 // GitHub Pages project-site base path.
 const SITE = 'https://quarrysystems.github.io';
-const BASE = '/agora';
+const BASE = '/pangolin-scale';
 
 export default defineConfig({
   site: SITE,
   base: BASE,
+  redirects: {
+    '/pangolin-scale/reference/agora-client-api/': '/pangolin-scale/reference/pangolin-client-api/',
+    '/agora/reference/agora-client-api/': '/pangolin-scale/reference/pangolin-client-api/',
+  },
   integrations: [
     mermaid({ theme: 'default' }),
     starlight({
-      title: 'agora',
+      title: 'Pangolin Scale',
       description:
         'Secure, deterministic, auditable execution of AI agents — dispatch a DAG of tasks, fan out under file-locks, get back reviewable patches and a tamper-evident audit trail.',
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/quarrysystems/agora' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/quarrysystems/pangolin-scale' },
       ],
-      editLink: { baseUrl: 'https://github.com/quarrysystems/agora/edit/main/docs-site/' },
+      editLink: { baseUrl: 'https://github.com/quarrysystems/pangolin-scale/edit/main/docs-site/' },
       lastUpdated: true,
       plugins: [
         // Strict link validation is turned on in a later task once all pages exist.
