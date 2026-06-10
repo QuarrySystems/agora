@@ -6,11 +6,8 @@
   "type": "module",
   "license": "BUSL-1.1",
   "scripts": {
-    "start": "tsx src/index.ts",
-    "start:env": "tsx --env-file=../../.env src/index.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --strict src/index.ts test/claims-appeals-minio.test.ts",
-    "build": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --strict src/index.ts"
+    "typecheck": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --strict test/claims-appeals-minio.test.ts test/recording-bundle.test.ts"
   },
   "dependencies": {
     "@quarry-systems/pangolin-client": "workspace:*",

@@ -4,6 +4,8 @@
 
 import { createHash } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
+// make-recording-bundle.mjs is plain ESM (no .d.ts); forgeOneByte is exercised below.
+// @ts-expect-error - untyped local .mjs import
 import { forgeOneByte } from '../make-recording-bundle.mjs';
 import { verifyBundle } from '@quarry-systems/pangolin-orchestrator';
 import type { AuditBundle, AuditEntryRow, AuditAnchor, AnchoredRoot } from '@quarry-systems/pangolin-orchestrator';

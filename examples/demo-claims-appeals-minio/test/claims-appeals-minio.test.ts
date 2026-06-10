@@ -12,14 +12,14 @@ import {
   NoneSigner,
   LocalAnchor,
 } from '@quarry-systems/pangolin-orchestrator';
-import type { Run, Executor, FireContext, ItemStatus } from '@quarry-systems/pangolin-orchestrator';
-import plan from '../plan.json' assert { type: 'json' };
+import type { Run, Executor, FireContext } from '@quarry-systems/pangolin-orchestrator';
+import plan from '../plan.json' with { type: 'json' };
 
 // ---------------------------------------------------------------------------
 // Local helper: drive a real PangolinOrchestrator + fake executor to terminal.
 // Mirrors the inline loop in demo-claims-appeals/test/claims-appeals.test.ts.
 // ---------------------------------------------------------------------------
-async function driveToTerminal(rawPlan: Run): Promise<ItemStatus[]> {
+async function driveToTerminal(rawPlan: Run) {
   const fakeExecutor: Executor = {
     id: 'dispatch',
     async fire(item, _ctx?: FireContext) {
