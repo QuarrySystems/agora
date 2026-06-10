@@ -25,7 +25,8 @@ no network.
 - **Per-block evidence** — each item's pipeline records `blocks[]` entries
   (script and capture steps with status), sealed with the run.
 - **The same provenance-checked bundle** — verification confirms every
-  consumed input ref is accounted for by a sealed producer:
+  consumed input ref is accounted for by a sealed producer (output
+  abbreviated):
 
 ```text
 === verifyBundle report ===
@@ -42,9 +43,9 @@ no network.
    `map-<key>` item per output file.
 2. Each map item sums its partition; `reduce` receives all map results and
    totals them (expected: 100).
-3. The pipeline steps are declared typed blocks from the `data` pack
-   (`data.split` / `data.transform` / `data.aggregate`) — the second domain
-   pack on the unchanged engine. See
+3. Each item runs a declared block pipeline (script and capture steps), typed
+   against the `data` pack's shapes (`data.split` / `data.transform` /
+   `data.aggregate`) — the second domain pack on the unchanged engine. See
    [Execution patterns](/pangolin-scale/explanation/execution-patterns/) and
    [Typed-product handoff](/pangolin-scale/explanation/typed-product-handoff/).
 
