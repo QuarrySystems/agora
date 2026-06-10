@@ -34,6 +34,15 @@ export default defineConfig({
       ],
       sidebar: [
         {
+          label: 'Use cases',
+          items: [
+            { slug: 'use-cases/regulated-document-drafting' },
+            { slug: 'use-cases/dev-offload' },
+            { slug: 'use-cases/compliance-evidence' },
+            { slug: 'use-cases/data-pipelines' },
+          ],
+        },
+        {
           label: 'Tutorials',
           items: [
             { slug: 'tutorials/first-dispatch' },
