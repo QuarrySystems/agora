@@ -1,0 +1,85 @@
+# Claims-Appeals demo — local infra stack.
+#
+# Provides MinIO (S3-compatible object store) and LocalStack (AWS Secrets Manager)
+# for the host-side `pangolin orch serve` to talk to.
+#
+# NOTE: `serve` runs on the HOST, not in a container.  This stack is intentionally
+# limited to the three backing-service containers:
+#   minio       — S3 object store (ports 9000/9001)
+#   localstack  — Secrets Manager emulator (port 4566)
+#   minio-init  — one-shot bucket initialisation (runs scripts/init-buckets.sh)
+#
+# Usage:
+#   docker compose -f examples/demo-claims-appeals-minio/docker-compose.yml up -d
+#
+# Stack name `pangolin-claims-minio` avoids colliding with the offload-minio stack.
+
+name: pangolin-claims-minio
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # MinIO — S3-compatible object store
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: pangolin-claims-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # localstack — AWS Secrets Manager emulator
+  # serve stages ANTHROPIC_API_KEY here as a per-dispatch secret; the worker
+  # resolves the ref over the network.
+  # ---------------------------------------------------------------------------
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: pangolin-claims-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: "secretsmanager"
+      DEFAULT_REGION: "us-east-1"
+      EAGER_SERVICE_LOADING: "1"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # minio-init — one-shot bucket creation (idempotent)
+  # Creates pangolin-audit (Object Lock / COMPLIANCE — tamper-evident) and
+  # pangolin-data (standard storage + mailbox bucket).
+  # ---------------------------------------------------------------------------
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: pangolin-claims-minio-init
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    # MC_HOST_myminio lets `mc` commands use the alias "myminio" without a
+    # separate `mc alias set` call.
+    environment:
+      MC_HOST_myminio: "http://minioadmin:minioadmin@minio:9000"
+    volumes:
+      - ./scripts/init-buckets.sh:/init-buckets.sh:ro
+    entrypoint: ["/bin/sh", "/init-buckets.sh"]
+
+volumes:
+  minio-data:
