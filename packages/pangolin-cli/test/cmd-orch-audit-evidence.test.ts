@@ -19,7 +19,7 @@ describe('renderEvidenceLine', () => {
     expect(line).toMatch(/0\.005/);
   });
 
-  it('shows PASS for a passing item with undefined verify', () => {
+  it('shows a neutral indicator (no PASS/FAIL) when verify is undefined', () => {
     // When verify is undefined, no self-verify result is known — show "?" sentinel
     const line = renderEvidenceLine('appeal-003', undefined, ['claude-opus-4-5'], 0.01);
     expect(line).toMatch(/appeal-003/);
@@ -42,5 +42,11 @@ describe('renderEvidenceLine', () => {
     expect(line).toMatch(/model-b/);
     expect(line).toMatch(/PASS/);
     expect(line).toMatch(/0\.003/);
+  });
+
+  it('formats costUsd to 4 decimals (clean on-camera figure, no float noise)', () => {
+    const line = renderEvidenceLine('appeal-006', { passed: true }, ['m'], 0.002100000000001);
+    expect(line).toMatch(/\$0\.0021(?!\d)/); // exactly 4 decimals, not the raw float
+    expect(line).not.toMatch(/0\.002100000000001/);
   });
 });

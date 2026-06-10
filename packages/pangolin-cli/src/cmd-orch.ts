@@ -43,7 +43,7 @@ export function renderEvidenceLine(
 ): string {
   const verifyStr = verify === undefined ? 'self-verify: -' : `self-verify: ${verify.passed ? 'PASS' : 'FAIL'}`;
   const modelStr = models && models.length > 0 ? `model: ${models.join(',')}` : 'model: -';
-  const costStr = costUsd !== undefined ? `$${costUsd}` : '$-';
+  const costStr = costUsd !== undefined ? `$${costUsd.toFixed(4)}` : '$-';
   return `  ${itemId}  ${verifyStr}   ${modelStr}   ${costStr}`;
 }
 
