@@ -273,11 +273,16 @@ stack injects `host.docker.internal:host-gateway` via `extra_hosts`.
 pnpm --filter demo-claims-appeals-minio-example test
 ```
 
-`test/claims-appeals-minio.test.ts` uses a **fake executor** (no containers, no
-LLM). It verifies: `plan.json` has the correct fan-out shape (3 per-output-locked
-appeals + a verify gate depending on all three); a real `PangolinOrchestrator`
-drives it to terminal; every appeal reaches `done` with a `resultRef`; and the
-verify item reaches `done`.
+CI checks only what is deterministic AND specific to this example:
+- `test/claims-appeals-minio.test.ts` — `plan.json` has the correct fan-out shape
+  (3 per-output-locked appeals + a verify gate depending on all three).
+- `test/recording-bundle.test.ts` — the tamper mechanic: `forgeOneByte()` flips one
+  byte and `verifyBundle` then reports `intact: false`, `failure: 'chain'`.
+
+CI does **not** fake-run the orchestrator: a fake-executor "drive to terminal" test
+would only re-exercise orchestrator plumbing (covered by the orchestrator package's
+own tests), not this demo. The demo's real value — drafting, sealing, redaction,
+tamper-evidence — is only provable by running the stack (manual, below).
 
 **The MinIO/Object-Lock path is exercised MANUALLY (requires the running stack)
 and is NOT covered by CI.** There is no silent CI claim for the tamper-evident

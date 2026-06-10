@@ -176,14 +176,18 @@ then `verify bundle.forged.json --full` (RED, exit 1) — deterministic. README
 also documents the manual live forge for anyone who wants it.
 
 ## 7. Testing & gates
-- `test/claims-appeals-minio.test.ts` — deterministic CI smoke, **fake
-  executor** (no containers/MinIO/LLM), mirroring the existing
-  `demo-claims-appeals` test: asserts `plan.json` fan-out shape (3
-  per-output-locked appeals + verify gating all three), drives a real
-  orchestrator to completion, every appeal `done` with `resultRef`,
-  `bundle.report.intact === true`.
-- The MinIO/Object-Lock path is exercised **manually** (needs the stack), not in
-  CI — README says so.
+CI tests only what is deterministic AND example-specific — no fake-executor run.
+(A fake-executor "drive to terminal" test was considered and **dropped**: it only
+re-exercises orchestrator plumbing the orchestrator package already tests, not this
+demo.)
+- `test/claims-appeals-minio.test.ts` — asserts `plan.json` fan-out shape (3
+  per-output-locked appeals + verify gating all three). Pure JSON assertion, no
+  executor.
+- `test/recording-bundle.test.ts` — the tamper mechanic: `forgeOneByte()` →
+  `verifyBundle` reports `intact: false`, `failure: 'chain'`. Deterministic, no
+  containers.
+- The MinIO/Object-Lock path (and the seal/redaction/real-drafting value) is
+  exercised **manually** (needs the stack), not in CI — README says so.
 - `pnpm --filter demo-claims-appeals-minio-example typecheck` + repo `pnpm -r
   lint` green.
 
