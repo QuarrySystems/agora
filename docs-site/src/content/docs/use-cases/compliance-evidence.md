@@ -27,6 +27,7 @@ Pangolin Scale seals every run into an exportable bundle whose verification
   ✓ root         merkle c4f1a9…  =  anchored root
   ✓ signature    ed25519 / pangolin-prod  valid
   ✓ anchor       s3:my-audit-bucket  (external-immutable)
+  ✓ handoff      3 input refs accounted for
 ```
 
 - **CI-gateable exit codes** — a bundle that fails any check exits non-zero,
@@ -55,7 +56,8 @@ needs two things:
 
 1. The bundle file.
 2. Read access to the anchor that sealed the run — for the
-   `external-immutable` tier, the S3 Object Lock location.
+   `external-immutable` tier, the S3 Object Lock location — wired into
+   their own `pangolin.config`.
 
 For programmatic use, the same check is the `verifyBundle(bundle, { anchor })`
 entry point exported from `@quarry-systems/pangolin-orchestrator`, so an
