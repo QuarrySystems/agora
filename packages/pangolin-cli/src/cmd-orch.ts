@@ -30,21 +30,17 @@ const resolveActor = (flag?: string): string => flag ?? process.env.PANGOLIN_ACT
  * Pure helper: render a single per-item evidence line for `pangolin orch audit`.
  * Exported for unit testing.
  *
- * @param itemId   - the work item id (e.g. "appeal-001")
- * @param verify   - the item's self-verify result ({ passed: boolean }) or undefined if absent
- * @param models   - array of model ids from RuntimeUsage.models, or undefined
- * @param costUsd  - cost in USD from RuntimeUsage.costUsd, or undefined
+ * Shows the pinned model per item, read from the sealed bundle manifest
+ * (`manifest.executorManifest.model.id`). Self-verify result + costUsd are NOT
+ * yet sealed into the audit bundle, so they are intentionally omitted here — see
+ * the follow-up to seal worker self-verify + usage into the bundle.
+ *
+ * @param itemId - the work item id (e.g. "appeal-001")
+ * @param model  - the pinned model id from the bundle manifest, or '' / undefined
  */
-export function renderEvidenceLine(
-  itemId: string,
-  verify: { passed: boolean } | undefined,
-  models: string[] | undefined,
-  costUsd: number | undefined,
-): string {
-  const verifyStr = verify === undefined ? 'self-verify: -' : `self-verify: ${verify.passed ? 'PASS' : 'FAIL'}`;
-  const modelStr = models && models.length > 0 ? `model: ${models.join(',')}` : 'model: -';
-  const costStr = costUsd !== undefined ? `$${costUsd.toFixed(4)}` : '$-';
-  return `  ${itemId}  ${verifyStr}   ${modelStr}   ${costStr}`;
+export function renderEvidenceLine(itemId: string, model: string | undefined): string {
+  const modelStr = model ? `model: ${model}` : 'model: -';
+  return `  ${itemId}  ${modelStr}`;
 }
 
 /** Named --pattern values → the real exported Pattern objects (spec §3 — `OrchContext`
@@ -240,30 +236,21 @@ export function attachOrchCmd(program: Command, ctx: CliContext): void {
     const api = new OperationsApi(oc);
     const bundle = await api.audit(runId);
 
-    // Per-item evidence block (additive — printed before/after the JSON bundle).
-    // Fetch status to get per-item verify + depends_on; build view for per-node usage.
+    // Per-item evidence block (additive — printed to stderr before the JSON bundle).
+    // Reads the pinned model per item straight from the sealed bundle manifests
+    // (manifest.itemId + manifest.executorManifest.model.id). Self-verify + costUsd
+    // are not yet sealed into the bundle, so they are omitted (tracked follow-up).
     try {
-      const statusRec = await api.status(runId);
-      if (statusRec !== null && statusRec !== undefined) {
-        // statusRec may be an OutboxRecord or similar — the status items live in body.
-        // OperationsApi.status returns the raw body array or null.
-        const items = Array.isArray(statusRec) ? statusRec as StatusLike[] : null;
-        if (items && items.length > 0) {
-          const plan: Run = {
-            id: runId,
-            queue: 'default',
-            items: items.map((s) => ({
-              id: s.id, executor: 'dispatch', inputs: {}, depends_on: s.depends_on ?? [], resourceLocks: [],
-            })),
-          };
-          const view = buildRunView({ plan, status: items });
-          console.error('--- per-item evidence ---');
-          for (const item of items) {
-            const node = view.nodes.find((n) => n.id === item.id);
-            console.error(renderEvidenceLine(item.id, item.verify, node?.usage?.models, node?.usage?.costUsd));
-          }
-          console.error('---');
+      const manifests = Array.isArray(bundle.manifests) ? bundle.manifests : [];
+      if (manifests.length > 0) {
+        console.error('--- per-item evidence ---');
+        for (const m of manifests) {
+          // executorManifest is typed opaquely in the bundle; the dispatch executor
+          // seals { model: { id } } into it (see dispatch executor manifest).
+          const model = (m.executorManifest as { model?: { id?: string } } | undefined)?.model?.id;
+          console.error(renderEvidenceLine(m.itemId, model));
         }
+        console.error('---');
       }
     } catch { /* best-effort — never fail the audit command itself */ }
 
