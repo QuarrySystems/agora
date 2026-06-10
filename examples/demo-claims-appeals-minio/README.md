@@ -29,11 +29,13 @@ the retention window expires.
   into `pangolin-audit` (MinIO Object Lock, COMPLIANCE mode). `pangolin orch audit`
   / `pangolin verify` assemble a verifiable bundle with
   `claim: 'tamper-evident'`, `guarantee: 'external-immutable'`, `intact: true`.
-- **Forge → fail headline (Beat 4)**: `make-recording-bundle.mjs` produces
-  `recording/bundle.json` (intact) and `recording/bundle.forged.json` (one byte
-  flipped in the first audit entry hash → `intact: false`, exit 1). The Beat-4
-  headline never depends on a live edit of the bundle — the forged file is
-  pre-committed.
+- **Forge → fail headline (Beat 4)**: `make-recording-bundle.mjs` is run once
+  against a completed run to generate `recording/bundle.json` (intact) and
+  `recording/bundle.forged.json` (one byte flipped in the first audit entry hash →
+  `intact: false`, exit 1). You commit those two files after generating them so the
+  Beat-4 headline uses a stable, pre-generated forged bundle and never depends on a
+  live edit on camera. They are **not shipped pre-committed** in this example — you
+  generate them during recording prep (see §Recording bundle).
 
 ---
 
@@ -183,13 +185,19 @@ pangolin orch audit claims-demo-1 --out bundle.json
 ```sh
 pangolin verify bundle.json --full
 # → all rows ✓, intact: true, external-immutable
+```
 
+For the Beat-4 headline clip, you need `recording/bundle.forged.json` — a
+pre-generated forged bundle committed during recording prep. **Generate it first**
+by running `make-recording-bundle.mjs` against the completed run (see §Recording
+bundle below), then commit the two output files. Once committed:
+
+```sh
 pangolin verify recording/bundle.forged.json --full
 # → a row RED, intact: false, exit 1
 ```
 
-`recording/bundle.forged.json` was produced by `make-recording-bundle.mjs`
-(see §Recording bundle below) and differs from `recording/bundle.json` by **one
+`recording/bundle.forged.json` differs from `recording/bundle.json` by **one
 byte** — a flipped hex character in the first audit entry hash. This causes
 `verifyBundle` to return `intact: false` with `failure: 'chain'`. Exit code 1.
 
@@ -210,6 +218,9 @@ pangolin orch watch claims-demo-1          # Beat 1: 3 appeals fan out under per
 pangolin orch audit claims-demo-1          # Beat 2 + 3: redacted PAYER_PORTAL_TOKEN; per-item self-verify PASS + model + costUsd
 pangolin orch audit claims-demo-1 --out bundle.json
 pangolin verify bundle.json --full         # Beat 4: all rows ✓, intact:true, external-immutable
+# Beat 4 headline: generate recording artifacts first (recording prep, done once):
+PANGOLIN_RECORDING_RUN_ID=claims-demo-1 node make-recording-bundle.mjs
+# → produces recording/bundle.json + recording/bundle.forged.json; commit both
 pangolin verify recording/bundle.forged.json --full  # Beat 4 headline: a row RED, intact:false, exit 1
 ```
 
@@ -217,23 +228,26 @@ pangolin verify recording/bundle.forged.json --full  # Beat 4 headline: a row RE
 
 ## Recording bundle
 
-`make-recording-bundle.mjs` produces two committed artifacts so the Beat-4
-headline never depends on a live edit:
+**These files are NOT shipped pre-committed in this example.** You generate them
+once as part of recording prep — after completing the full
+`register.mjs` → `serve` → `submit` → `watch` cycle on the live stack — and then
+commit them so the Beat-4 headline clip always uses a stable, pre-generated forged
+bundle without requiring a live edit on camera.
 
 ```sh
 PANGOLIN_RECORDING_RUN_ID=claims-demo-1 node make-recording-bundle.mjs
 ```
 
-Outputs:
+Outputs (generated into `recording/`):
 
 - `recording/bundle.json` — intact audit bundle assembled from the completed run.
 - `recording/bundle.forged.json` — one byte flipped (first hex character of
   `auditLog.entries[0].entryHash`). `verifyBundle` returns `intact: false`,
   `failure: 'chain'`.
 
-These files are committed so the demo script always has a stable forged bundle
-without requiring a re-run. Never hand-edit `bundle.forged.json` — regenerate via
-the script.
+After generating, commit both files (`git add recording/bundle.json recording/bundle.forged.json`).
+From that point forward Step 8 and the Beat-4 clip use the stable pre-committed
+artifacts. Never hand-edit `bundle.forged.json` — regenerate via the script.
 
 ---
 
