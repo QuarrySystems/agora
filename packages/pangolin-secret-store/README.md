@@ -6,6 +6,6 @@
 pnpm add -systems/pangolin-secret-store
 ```
 
-Part of [pangolin](https://quarrysystems.github.io/pangolin-scale).
+Part of [pangolin](https://quarrysystems.github.io/pangolin).
 
 License: BUSL-1.1

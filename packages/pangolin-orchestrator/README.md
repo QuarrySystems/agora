@@ -6,6 +6,6 @@ Orchestrator-engine (codename *pangolin-offload*) — named queues, `depends_on`
 pnpm add -systems/pangolin-orchestrator
 ```
 
-Part of [pangolin](https://quarrysystems.github.io/pangolin-scale).
+Part of [pangolin](https://quarrysystems.github.io/pangolin).
 
 License: BUSL-1.1

@@ -198,7 +198,7 @@ Then point the SSH tunnel at the WSL2 distro's IP directly (look it up via `ip a
 ### 4.1 Clone the repo
 
 ```bash
-git clone https://github.com/quarrysystems/pangolin-scale.git
+git clone https://github.com/quarrysystems/pangolin.git
 cd pangolin-scale
 ```
 
@@ -267,7 +267,7 @@ Expected: `minio` healthy, `localstack` healthy, `minio-init` exited 0, `serve-d
 ### 5.1 Clone and build on the laptop
 
 ```bash
-git clone https://github.com/quarrysystems/pangolin-scale.git
+git clone https://github.com/quarrysystems/pangolin.git
 cd pangolin-scale
 pnpm install && pnpm -r build
 ```

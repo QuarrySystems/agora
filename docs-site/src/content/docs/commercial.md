@@ -31,7 +31,7 @@ agents, run them in your account, and hand you the audit bundle — free, in
 exchange for blunt feedback and the 2–3 things you'd pay for. No build on your
 side, no procurement marathon.
 
-→ **[Book a pilot](https://github.com/quarrysystems/pangolin-scale/issues/new)** <!-- TODO: replace with Cal.com booking link + contact email before publish -->
+→ **[Book a pilot](https://github.com/quarrysystems/pangolin/issues/new)** <!-- TODO: replace with Cal.com booking link + contact email before publish -->
 
 ## Licensing tiers
 
@@ -45,6 +45,6 @@ side, no procurement marathon.
 The Community engine is the real thing, not crippleware: it runs fully standalone.
 The Enterprise modules are seam *implementations* (RBAC, SSO, compliance tooling,
 the witness audit tier) that plug into the open engine's extension points. See the
-[project roadmap](/pangolin-scale/explanation/project-status-roadmap/) for which seams ship
-open and which implementations are Enterprise, and [Licensing & BSL](/pangolin-scale/explanation/licensing-bsl/)
+[project roadmap](/pangolin/explanation/project-status-roadmap/) for which seams ship
+open and which implementations are Enterprise, and [Licensing & BSL](/pangolin/explanation/licensing-bsl/)
 for the current grant.

@@ -15,12 +15,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/QuarrySystems/pangolin-scale.git",
+    "url": "git+https://github.com/QuarrySystems/pangolin.git",
     "directory": "packages/pangolin-core"
   },
-  "homepage": "https://quarrysystems.github.io/pangolin-scale",
+  "homepage": "https://quarrysystems.github.io/pangolin",
   "bugs": {
-    "url": "https://github.com/QuarrySystems/pangolin-scale/issues"
+    "url": "https://github.com/QuarrySystems/pangolin/issues"
   },
   "scripts": {
     "lint": "eslint src --ext .ts",

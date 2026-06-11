@@ -6,6 +6,6 @@
 pnpm add -systems/pangolin-storage-local
 ```
 
-Part of [pangolin](https://quarrysystems.github.io/pangolin-scale).
+Part of [pangolin](https://quarrysystems.github.io/pangolin).
 
 License: BUSL-1.1

@@ -73,9 +73,9 @@ Follow these steps in order.
      PangolinClient,
      NoopCredentialProvider,
      StdoutResultSink,
-   } from 'file:///ABS/PATH/TO/pangolin-scale/packages/pangolin-client/dist/index.js';
-   import { LocalStorageProvider } from 'file:///ABS/PATH/TO/pangolin-scale/packages/pangolin-storage-local/dist/index.js';
-   import { LocalDockerProvider } from 'file:///ABS/PATH/TO/pangolin-scale/packages/pangolin-providers-local-docker/dist/index.js';
+   } from 'file:///ABS/PATH/TO/pangolin/packages/pangolin-client/dist/index.js';
+   import { LocalStorageProvider } from 'file:///ABS/PATH/TO/pangolin/packages/pangolin-storage-local/dist/index.js';
+   import { LocalDockerProvider } from 'file:///ABS/PATH/TO/pangolin/packages/pangolin-providers-local-docker/dist/index.js';
    import { mkdir } from 'node:fs/promises';
    import { homedir } from 'node:os';
    import { join } from 'node:path';
@@ -122,7 +122,7 @@ Follow these steps in order.
    your deploy dir. Make an alias:
 
    ```bash
-   alias pangolin='node /ABS/PATH/TO/pangolin-scale/packages/pangolin-cli/dist/index.js'
+   alias pangolin='node /ABS/PATH/TO/pangolin/packages/pangolin-cli/dist/index.js'
    ```
 
    Add it to `~/.bashrc` to make it persistent. Confirm it loads your config:
@@ -178,7 +178,7 @@ this to `.mcp.json` (or `~/.claude/settings.json` for global):
   "mcpServers": {
     "pangolin-scale": {
       "command": "node",
-      "args": ["/ABS/PATH/TO/pangolin-scale/packages/pangolin-mcp/dist/bin.js"],
+      "args": ["/ABS/PATH/TO/pangolin/packages/pangolin-mcp/dist/bin.js"],
       "cwd": "/ABS/PATH/TO/my-deploy"
     }
   }
@@ -193,13 +193,13 @@ registry reads (`pangolin_capabilities_list`, `pangolin_subagents_list`,
 `pangolin_envs_list`), and the orchestrator verbs (`pangolin_orchestrator_submit`,
 `pangolin_orchestrator_status`, `pangolin_orchestrator_watch`). The privileged
 `register` / `assign` operations are deliberately absent — see
-[The privilege boundary](/pangolin-scale/explanation/privilege-boundary/).
+[The privilege boundary](/pangolin/explanation/privilege-boundary/).
 
 ## Next steps
 
-- [Architecture overview](/pangolin-scale/explanation/architecture-overview/) — the
+- [Architecture overview](/pangolin/explanation/architecture-overview/) — the
   design behind the provider seams you just wired, if you want to read the
   model before going further.
-- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — graduate from
+- [Your first offload run](/pangolin/tutorials/first-offload-run/) — graduate from
   one dispatch to a whole DAG of tasks fanning out under resource locks, with a
   verifiable audit bundle at the end.

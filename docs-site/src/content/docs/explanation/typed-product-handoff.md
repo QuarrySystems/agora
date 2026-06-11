@@ -4,7 +4,7 @@ description: How a downstream task consumes an upstream task's output by content
 ---
 
 A plan is a DAG, but the engine described in
-[how an offload run executes](/pangolin-scale/explanation/how-offload-runs/) only schedules
+[how an offload run executes](/pangolin/explanation/how-offload-runs/) only schedules
 *when* an item runs — it does not move bytes between items. **Typed-product
 handoff** is the seam that does: a downstream task declares what it consumes and
 which upstream task produces it, and the orchestrator wires the
@@ -98,7 +98,7 @@ view, two things change relative to a no-handoff dispatch:
 Both the consumed `inputRefs` and the produced `outputRefs` are sealed into the
 dispatch manifest and into the audit evidence for the item, alongside the
 existing `result_ref` (the workspace-diff patch escape described in
-[how an offload run executes](/pangolin-scale/explanation/how-offload-runs/)). Nothing
+[how an offload run executes](/pangolin/explanation/how-offload-runs/)). Nothing
 about the patch escape changes — it is the workspace diff, captured the same
 way as before; `outputRefs` is the separate, *explicit* product channel.
 
@@ -150,7 +150,7 @@ footing as the chain and root checks.
 ## Try it: `examples/handoff-dag/`
 
 The minimal worked example lives at
-[`examples/handoff-dag/`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/handoff-dag/).
+[`examples/handoff-dag/`](https://github.com/quarrysystems/pangolin/tree/main/examples/handoff-dag/).
 It is a two-task plan: `edit-a` runs a small editor agent whose workspace edit
 escapes as its content-addressed patch product, and `apply-patch` binds that
 product via `needs` — a setup script applies it with `git apply inputs/patch`
@@ -160,10 +160,10 @@ output before going back to your own plans.
 
 ## See also
 
-- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — where
+- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — where
   `needs` slots into the tick loop and the `depends_on` resolver.
-- [plan.json schema](/pangolin-scale/reference/plan-json/) — the full grammar of
+- [plan.json schema](/pangolin/reference/plan-json/) — the full grammar of
   `needs`, product-kind declarations, and the validation errors.
-- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — what
+- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — what
   the other four `pangolin verify` rows prove, and the tier the `handoff` row
   sits on.

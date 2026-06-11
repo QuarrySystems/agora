@@ -3,7 +3,7 @@ title: Execution patterns
 description: How queue-level execution patterns (static-dag, pipeline, map-reduce) layer above the tick engine — the Pattern contract, the extendRun seam, run.extended audit entries, the gate/respawn circle-back, and the forward-arc-never-rewind invariant.
 ---
 
-The core tick engine described in [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/)
+The core tick engine described in [How an offload run executes](/pangolin/explanation/how-offload-runs/)
 handles one responsibility: advancing a fixed DAG of **WorkItems** through their
 status lattice. Execution patterns are a separate layer built *on top of* that
 engine — they let a queue answer a richer question: "now that some items have
@@ -215,7 +215,7 @@ flowchart LR
 edges; the dotted arrow marks the pattern's spawn trigger, not a graph edge.
 The failed `lint` stays permanently in history; the fix and gate copy extend
 the run forward. To watch these ghost respawn arcs appear and resolve in real
-time, see [`pangolin orch watch` — the live view](/pangolin-scale/reference/cli/#pangolin-orch-watch--the-live-view).
+time, see [`pangolin orch watch` — the live view](/pangolin/reference/cli/#pangolin-orch-watch--the-live-view).
 
 ## The forward-arc-never-rewind invariant
 
@@ -285,13 +285,13 @@ which are expected to be O(terminal items) and free of I/O.
 
 ## See also
 
-- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — the core
+- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — the core
   tick engine that execution patterns sit above.
-- [plan.json schema](/pangolin-scale/reference/plan-json/) — the WorkItem fields that
+- [plan.json schema](/pangolin/reference/plan-json/) — the WorkItem fields that
   patterns populate when spawning (`depends_on`, `resourceLocks`, `executor`,
   `needs`).
-- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — how
+- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — how
   `run.extended` entries are covered by the audit bundle and what `pangolin verify`
   checks.
-- [Architecture overview](/pangolin-scale/explanation/architecture-overview/) — where
+- [Architecture overview](/pangolin/explanation/architecture-overview/) — where
   patterns fit in the whole system.

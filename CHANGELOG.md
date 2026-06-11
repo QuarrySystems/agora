@@ -172,5 +172,5 @@ published to npm under `@quarry-systems/agora-*`.
 - **Effect-tier policy** is computed but not yet enforced.
 - **Pre-1.0 (`0.x`):** interfaces may change between minor versions.
 
-[Unreleased]: https://github.com/QuarrySystems/pangolin-scale/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/QuarrySystems/pangolin-scale/releases/tag/v0.1.0
+[Unreleased]: https://github.com/QuarrySystems/pangolin/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/QuarrySystems/pangolin/releases/tag/v0.1.0

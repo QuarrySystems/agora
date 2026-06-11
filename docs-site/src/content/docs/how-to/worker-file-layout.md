@@ -28,7 +28,7 @@ pangolin capabilities register --name <name> --from ./path/to/capability-dir
 ```
 
 Or auto-generate from an existing on-disk convention (`.claude/skills/`,
-pokemon profiles, etc.) — see [Sync capabilities & subagents](/pangolin-scale/how-to/sync-capabilities-subagents/).
+pokemon profiles, etc.) — see [Sync capabilities & subagents](/pangolin/how-to/sync-capabilities-subagents/).
 
 ## How Pangolin Scale decides which file wins
 
@@ -165,9 +165,9 @@ Worker workspace will have `<workspace>/fixtures/sample-input.json` etc.
 
 ## See also
 
-- [Sync capabilities & subagents](/pangolin-scale/how-to/sync-capabilities-subagents/) — auto-generate capabilities and
+- [Sync capabilities & subagents](/pangolin/how-to/sync-capabilities-subagents/) — auto-generate capabilities and
   subagents from `.claude/skills/`, `.claude/agents/`, pokemon profiles, etc.
-- [Dispatch to a remote Docker daemon](/pangolin-scale/how-to/remote-docker-dispatch/) — dispatch to a
+- [Dispatch to a remote Docker daemon](/pangolin/how-to/remote-docker-dispatch/) — dispatch to a
   remote Docker daemon over SSH.
 - MVP spec §6.3 — formal definition of the overlay/merge model.
-- [ADR-0005](/pangolin-scale/explanation/decisions/0005-privileged-ops-never-ai-reachable/) — why register/assign are not exposed on the MCP surface.
+- [ADR-0005](/pangolin/explanation/decisions/0005-privileged-ops-never-ai-reachable/) — why register/assign are not exposed on the MCP surface.

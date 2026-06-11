@@ -83,7 +83,7 @@ How a binding flows through a run:
   block) reads them from there. What to *do* with the bytes (e.g. `git apply
   inputs/patch.diff`) is a pack/setup concern, not the seam's.
 - **In the audit trail**, the consumed refs are sealed into the item's
-  dispatch manifest at fire, and [`pangolin verify`](/pangolin-scale/reference/cli/#pangolin-verify)'s
+  dispatch manifest at fire, and [`pangolin verify`](/pangolin/reference/cli/#pangolin-verify)'s
   provenance-closure check proves every consumed ref equals a sealed output
   product of a verified item in the same run — byte-level provenance with no
   blob re-fetch.
@@ -96,8 +96,8 @@ rather than free-form worker input: `subagent`, `env`, `workerInput`,
 `inputs.pipeline` to a registered pipeline ref pins a **declared
 block-pipeline**: the worker fetches the spec by its content hash, re-validates
 it, and runs *that* pipeline instead of the default execution steps — see
-[Dispatch lifecycle → The block-pipeline runner](/pangolin-scale/reference/dispatch-lifecycle/#the-block-pipeline-runner)
-and [`pangolin pipeline`](/pangolin-scale/reference/cli/#pangolin-pipeline).
+[Dispatch lifecycle → The block-pipeline runner](/pangolin/reference/dispatch-lifecycle/#the-block-pipeline-runner)
+and [`pangolin pipeline`](/pangolin/reference/cli/#pangolin-pipeline).
 
 :::note
 The lock field is `resourceLocks`, **not** `locks`. Some prose (including the
@@ -108,7 +108,7 @@ actual JSON key and the `WorkItem` interface field are `resourceLocks`.
 ## Worked example
 
 This is
-[`examples/offload-fanout/plan.json`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/offload-fanout/plan.json)
+[`examples/offload-fanout/plan.json`](https://github.com/quarrysystems/pangolin/tree/main/examples/offload-fanout/plan.json)
 — a four-item fan-out: three independent edits (disjoint locks, run in parallel)
 followed by a `verify` that depends on all three.
 
@@ -152,7 +152,7 @@ followed by a `verify` that depends on all three.
 ## Worked example: typed-product handoff
 
 This is
-[`examples/handoff-dag/plan.json`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/handoff-dag/plan.json)
+[`examples/handoff-dag/plan.json`](https://github.com/quarrysystems/pangolin/tree/main/examples/handoff-dag/plan.json)
 — a two-item dependent edit: `apply-patch` consumes `edit-a`'s patch artifact
 via `needs`, so the second worker materializes the first worker's diff at
 `inputs/patch` before its agent runs. Note `apply-patch` declares no
@@ -198,7 +198,7 @@ internal run-state fields (`ItemState`), not part of the submitted plan.
 A `WorkItem` itself does not pin a target, env bundle, or worker image —
 those bindings live on the **executor** configured in `pangolin.config`, not in
 the plan. For the `dispatch` executor (`DispatchExecutor`), the
-[`pangolin.config.mjs`](/pangolin-scale/reference/config/) wires `target`, `workerImage`,
+[`pangolin.config.mjs`](/pangolin/reference/config/) wires `target`, `workerImage`,
 and `secrets`; the plan item supplies only `inputs.subagent` and the
 per-item `workerInput`. This keeps the plan portable across environments —
 the same `plan.json` runs locally or against Fargate depending solely on the

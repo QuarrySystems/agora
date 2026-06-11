@@ -96,7 +96,7 @@ over the agent's edit before sealing; its `{ passed, report, durationMs }` resul
 is recorded in the output sentinel and surfaced on the dispatch result. It is
 report-only (a failed verify never fails the dispatch) and only present in the
 stored definition when set (so subagents without it keep their content hash).
-See [Dispatch lifecycle → Self-verify](/pangolin-scale/reference/dispatch-lifecycle/#self-verify-optional).
+See [Dispatch lifecycle → Self-verify](/pangolin/reference/dispatch-lifecycle/#self-verify-optional).
 
 ## `client.env`
 
@@ -128,7 +128,7 @@ register(spec: PipelineSpec): Promise<PipelineRef>
 ```
 
 Registers a declared block-pipeline spec (see
-[Dispatch lifecycle → The block-pipeline runner](/pangolin-scale/reference/dispatch-lifecycle/#the-block-pipeline-runner)).
+[Dispatch lifecycle → The block-pipeline runner](/pangolin/reference/dispatch-lifecycle/#the-block-pipeline-runner)).
 The spec is structurally validated first — **collect-all**: every error is
 surfaced in one throw, not just the first — then content-addressed over its
 canonical-JSON (sorted-key) serialization and stored as a pinned immutable
@@ -180,7 +180,7 @@ client.dispatch.cancel(dispatchId: string): Promise<void>
 `callback`, `timeoutSeconds`, `retentionDays`, `resources`, `dispatchId`,
 `model`) come from `DispatchWork`. `capabilities` REPLACES the subagent's
 assigned set; `addCapabilities` APPENDS to it; combining both throws. See the
-[Dispatch lifecycle](/pangolin-scale/reference/dispatch-lifecycle/) for what happens
+[Dispatch lifecycle](/pangolin/reference/dispatch-lifecycle/) for what happens
 after the call.
 
 ### `model` field and level vocabulary

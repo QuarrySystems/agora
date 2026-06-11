@@ -56,8 +56,8 @@ Mechanical rename of the monorepo **Agora → Pangolin Scale**, full code + bran
 | MCP bin `agora-mcp` | `pangolin-mcp` |
 | config `agora.config.{ts,js,mjs}` | `pangolin.config.{ts,js,mjs}` |
 | docker image / dir `agora-worker` | `pangolin-worker` |
-| repo URL `github.com/QuarrySystems/agora` | `github.com/QuarrySystems/pangolin-scale` |
-| docs URL `quarrysystems.github.io/agora` | `quarrysystems.github.io/pangolin-scale` |
+| repo URL `github.com/QuarrySystems/agora` | `github.com/QuarrySystems/pangolin` |
+| docs URL `quarrysystems.github.io/agora` | `quarrysystems.github.io/pangolin` |
 | brand prose "Agora" | "Pangolin Scale" |
 | MCP tool identifiers (`agora_*` strings, if any) | `pangolin_*` (kept in sync across server + allowlist) |
 

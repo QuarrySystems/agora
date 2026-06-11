@@ -173,8 +173,8 @@ through `resolveProvider(name)` from the same map.
 
 ## See also
 
-- [Put files where the worker finds them](/pangolin-scale/how-to/worker-file-layout/) — where to put files for
+- [Put files where the worker finds them](/pangolin/how-to/worker-file-layout/) — where to put files for
   the worker to pick them up; what `pangolin capabilities sync` automates.
-- [ADR-0005](/pangolin-scale/explanation/decisions/0005-privileged-ops-never-ai-reachable/) — register/assign are not exposed on the MCP tool surface, which
+- [ADR-0005](/pangolin/explanation/decisions/0005-privileged-ops-never-ai-reachable/) — register/assign are not exposed on the MCP tool surface, which
   is why sync runs from the CLI (and the per-launch `pangolin.config.{ts,js,mjs}`)
   rather than from a dispatched worker.

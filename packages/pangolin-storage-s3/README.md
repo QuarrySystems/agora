@@ -6,7 +6,7 @@
 pnpm add -systems/pangolin-storage-s3
 ```
 
-Part of [pangolin](https://quarrysystems.github.io/pangolin-scale).
+Part of [pangolin](https://quarrysystems.github.io/pangolin).
 
 ## Encryption
 

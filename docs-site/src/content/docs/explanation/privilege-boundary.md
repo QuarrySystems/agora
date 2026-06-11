@@ -23,7 +23,7 @@ deploy-time verbs never reach the AI loop.
 
 If an AI orchestrator could register capabilities or subagents, prompt injection
 becomes privilege escalation. Three distinct risks, each sufficient on its own
-([ADR-0005](/pangolin-scale/explanation/decisions/0005-privileged-ops-never-ai-reachable/)):
+([ADR-0005](/pangolin/explanation/decisions/0005-privileged-ops-never-ai-reachable/)):
 
 1. **Capability content.** A capability defines the worker's authority surface —
    its bash patterns, MCP config, setup script. An AI tricked via repo content
@@ -42,7 +42,7 @@ artifacts are provisioned by humans, and dispatches reference them by name.
 ## The boundary is architectural, not policy
 
 Enforcement does not depend on the orchestrator behaving well. The
-[`pangolin-mcp`](/pangolin-scale/reference/mcp-tools/) server exposes a frozen tuple of
+[`pangolin-mcp`](/pangolin/reference/mcp-tools/) server exposes a frozen tuple of
 exactly **nine** run-time tools (`PANGOLIN_TOOL_NAMES` in
 `packages/pangolin-mcp/src/tools.ts`):
 
@@ -77,7 +77,7 @@ orchestration code* — exactly the trust model Pangolin Scale wants.
 
 ## See also
 
-- [ADR-0005 — Privileged operations are never reachable through an AI tool surface](/pangolin-scale/explanation/decisions/0005-privileged-ops-never-ai-reachable/)
-- [MCP tools reference](/pangolin-scale/reference/mcp-tools/) — the full nine-tool surface.
-- [Sandboxing AI agents](/pangolin-scale/explanation/sandboxing-ai-agents/) — the broader "why."
+- [ADR-0005 — Privileged operations are never reachable through an AI tool surface](/pangolin/explanation/decisions/0005-privileged-ops-never-ai-reachable/)
+- [MCP tools reference](/pangolin/reference/mcp-tools/) — the full nine-tool surface.
+- [Sandboxing AI agents](/pangolin/explanation/sandboxing-ai-agents/) — the broader "why."
 </content>

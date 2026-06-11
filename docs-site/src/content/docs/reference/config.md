@@ -75,7 +75,7 @@ Custom implementations can satisfy the `ScheduleStore` interface directly.
 ## Worked `pangolin.config.mjs`
 
 This is the config from
-[`examples/offload-fanout/`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/offload-fanout/),
+[`examples/offload-fanout/`](https://github.com/quarrysystems/pangolin/tree/main/examples/offload-fanout/),
 which wires both a `client` and an `orch` context against the local
 provider stack. It is import-safe: no throw at load when `ANTHROPIC_API_KEY` is
 absent.
@@ -163,7 +163,7 @@ export const orch = {
 ## Config keys reference
 
 The `PangolinClient` constructor options are documented in full on the
-[PangolinClient API](/pangolin-scale/reference/pangolin-client-api/) page — `namespace`,
+[PangolinClient API](/pangolin/reference/pangolin-client-api/) page — `namespace`,
 `compute`, `credentials`, `storage`, `targets`, `secretStores`, `telemetry`,
 `resultSink`, `defaultModel`, and `dispatchRetention`. The `targets` map keys
 each become a valid `--target` value for `pangolin dispatch run`; each target's
@@ -174,7 +174,7 @@ the corresponding option map.
 
 The S3 seams accept a custom endpoint, so the whole stack can run against MinIO,
 LocalStack, or any S3-compatible store — no AWS account required. The worked
-example is [`examples/offload-minio/`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/offload-minio/)
+example is [`examples/offload-minio/`](https://github.com/quarrysystems/pangolin/tree/main/examples/offload-minio/)
 (a serve container + MinIO via docker-compose). The relevant options:
 
 | Option | Where | Purpose |
@@ -190,7 +190,7 @@ not via a bundle — the worker needs S3 access *before* it can resolve anything
 **Secrets** (the API key) go the proper secret lane — staged into a
 network-reachable `SecretStore` (Secrets Manager) and resolved by the worker over
 the wire, **not** a bundle value. Non-secret config travels as
-[env bundles](/pangolin-scale/explanation/how-offload-runs/#running-serve-in-a-container-self-hosted-delivery)
+[env bundles](/pangolin/explanation/how-offload-runs/#running-serve-in-a-container-self-hosted-delivery)
 (content-addressed storage, reach workers).
 
 > On **real AWS** none of this is needed: the default S3 endpoint + an IAM task

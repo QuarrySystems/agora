@@ -42,7 +42,7 @@ Those hashes are a provable record of exactly which bytes ran — the audit trai
 
 ## The part that makes it unbypassable
 
-The agent's own tool surface (the MCP server it talks to) exposes **run-time tools only**. The privileged operations — `register`, `assign`: granting an agent more capabilities — are **CLI-only, operator-side, and never reach the AI loop.** The agent cannot grant itself more access, because the verb to do so isn't in its hands. Enforcement lives at the boundary, not in the agent's good behavior. See [The privilege boundary](/pangolin-scale/explanation/privilege-boundary/).
+The agent's own tool surface (the MCP server it talks to) exposes **run-time tools only**. The privileged operations — `register`, `assign`: granting an agent more capabilities — are **CLI-only, operator-side, and never reach the AI loop.** The agent cannot grant itself more access, because the verb to do so isn't in its hands. Enforcement lives at the boundary, not in the agent's good behavior. See [The privilege boundary](/pangolin/explanation/privilege-boundary/).
 
 Same code path runs locally against Docker and in production against Fargate + S3 — the swap is constructor-only.
 
@@ -52,7 +52,7 @@ This is v0.1. Today Pangolin Scale enforces access by **grant-scoping + operator
 
 ## If you run agents
 
-Pangolin Scale is **source-available** under the Business Source License 1.1 (BSL) — self-host it, read it, build on it; you just can't resell it as a hosted service. (BSL ≠ OSI-approved free software — see [Licensing & BSL](/pangolin-scale/explanation/licensing-bsl/) for the exact terms.)
+Pangolin Scale is **source-available** under the Business Source License 1.1 (BSL) — self-host it, read it, build on it; you just can't resell it as a hosted service. (BSL ≠ OSI-approved free software — see [Licensing & BSL](/pangolin/explanation/licensing-bsl/) for the exact terms.)
 
 If you're running autonomous or long-running agents and you've felt the *"this thing has way too much access and I can't prove what it did"* itch — I'd genuinely like to set Pangolin Scale up around your agent, for free, and hear where it falls short.
 </content>

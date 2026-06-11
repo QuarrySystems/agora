@@ -6,6 +6,6 @@ Types-only contract package; every other pangolin package depends on this and no
 pnpm add -systems/pangolin-core
 ```
 
-Part of [pangolin](https://quarrysystems.github.io/pangolin-scale).
+Part of [pangolin](https://quarrysystems.github.io/pangolin).
 
 License: BUSL-1.1

@@ -9,7 +9,7 @@ sidebar:
 narrow, **run-time-safe** tool surface over a `PangolinClient` (and, when
 configured, an `OperationsApi`). Privileged deploy-time operations
 (`register`, `assign`) and privileged/service orchestrator operations never
-appear here — see [The privilege boundary](/pangolin-scale/explanation/privilege-boundary/).
+appear here — see [The privilege boundary](/pangolin/explanation/privilege-boundary/).
 
 ## The tools
 
@@ -58,9 +58,9 @@ allowlist check:
 - `pangolin_orchestrator_audit` — service-only.
 - `pangolin_orchestrator_serve` — CLI-only.
 
-Registration and assignment run through the [CLI](/pangolin-scale/reference/cli/)
+Registration and assignment run through the [CLI](/pangolin/reference/cli/)
 instead. The reasoning behind keeping privileged operations out of the AI loop
-is in [The privilege boundary](/pangolin-scale/explanation/privilege-boundary/).
+is in [The privilege boundary](/pangolin/explanation/privilege-boundary/).
 
 :::note
 The README describes the pangolin-mcp surface as "exactly six run-time tools."

@@ -37,7 +37,7 @@ audit bundle.
   materialization seam in the worker, consumed refs sealed in the dispatch
   manifest, and a **provenance-closure** check in `pangolin verify` proving every
   consumed ref equals a sealed product of a verified item in the same run. See
-  the [plan.json reference](/pangolin-scale/reference/plan-json/#needs--typed-product-handoff).
+  the [plan.json reference](/pangolin/reference/plan-json/#needs--typed-product-handoff).
 - **The execution-pattern layer** — per-queue execution patterns
   (`static-dag`, `pipeline`, `map-reduce`) over the unchanged engine. Dynamic
   fan-out and circle-back are **audited spawn** through the internal
@@ -46,7 +46,7 @@ audit bundle.
   entries naming the cause item. Growth is always new forward arcs — never
   cycles — and provenance closure covers spawned graphs with zero new
   verification code. See
-  [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/#execution-patterns-and-audited-spawn).
+  [How an offload run executes](/pangolin/explanation/how-offload-runs/#execution-patterns-and-audited-spawn).
 - **The block-pipeline runner + the data pack** — the worker's execution core
   is a runner of typed block-pipelines (`PipelineSpec`: `agent` / `script` /
   `capture` blocks over a structural, auto-appended `seal`). The legacy steps
@@ -57,7 +57,7 @@ audit bundle.
   output sentinel. The `data` pack (CSV split → transform → aggregate riding
   map-reduce, scripts only, fully offline) is the **second-domain proof** the
   pack architecture demanded. See
-  [Dispatch lifecycle](/pangolin-scale/reference/dispatch-lifecycle/#the-block-pipeline-runner).
+  [Dispatch lifecycle](/pangolin/reference/dispatch-lifecycle/#the-block-pipeline-runner).
 - **`serve` driver** — long-running process; sole writer of the SQLite run-state,
   polls the submission inbox, runs the reconcile tick loop, exits cleanly on signal.
 - **Submission transport** — clients write a Run spec to a storage prefix; `serve`
@@ -71,14 +71,14 @@ audit bundle.
   | audit`; three client MCP tools (`pangolin_orchestrator_submit | _status |
   _watch`). `audit` is deliberately not on MCP. A CI allowlist check fails if any
   privileged/service method becomes MCP-reachable — see
-  [The privilege boundary](/pangolin-scale/explanation/privilege-boundary/).
+  [The privilege boundary](/pangolin/explanation/privilege-boundary/).
 - **Persistent run-state** — SQLite on the service's own volume.
 - **The `default` queue** — concurrency configured at construction. Named queues
   remain a contract, not yet a feature.
 - **Compliance & audit controls** — signed dispatch manifest, Merkle-rooted audit
   log with a pluggable `AuditAnchor` seam, actor identity on every operation, and
   `pangolin orch audit` evidence export. See
-  [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+  [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
   **Encryption-at-rest on S3 writes is Pangolin Scale-set** — `S3StorageProvider` takes an
   `encryption` option (SSE-S3, or customer-managed SSE-KMS via
   `{ mode: 'aws:kms', kmsKeyId }`); unset inherits the bucket default (no-downgrade).
@@ -87,7 +87,7 @@ audit bundle.
   "certified."**
 - **Headline demo** — a single `submit` exercising locks + deps + concurrency +
   isolation + patch escape, producing a verifiable audit bundle. Walk it in
-  [Your first offload run](/pangolin-scale/tutorials/first-offload-run/).
+  [Your first offload run](/pangolin/tutorials/first-offload-run/).
 - **BSL packaging** — root `LICENSE`, `BUSL-1.1` in every package.
 - **Typed-subagent substrate (scaffolded, not yet operational)** — the
   `SubagentShape` contract, the `PackRegistry`, construction-time validation, and
@@ -109,7 +109,7 @@ End-to-end **Fargate + S3 parity is operator-deferred.** Every production
 component exists in code (`FargateProvider`, `S3StorageProvider`,
 `AwsCredentialProvider`, and `S3ObjectLockAnchor` for the external-immutable audit
 tier), but the maintainers have not run the full Fargate+S3 path end-to-end. Treat
-[Deploy to Fargate + S3](/pangolin-scale/how-to/deploy-fargate-s3/) as a first-run guide,
+[Deploy to Fargate + S3](/pangolin/how-to/deploy-fargate-s3/) as a first-run guide,
 not a tested recipe — and note that no concrete `S3LockClient` adapter ships (the
 interface is provided; you implement it).
 
@@ -198,7 +198,7 @@ No refactor required when pulled — that is what the architecture bought.
   until 1.0.
 - `pangolin-core` is the **types-only contract**; every other package depends only on
   it. Breaking changes land there first. See the
-  [Package map](/pangolin-scale/reference/package-map/).
+  [Package map](/pangolin/reference/package-map/).
 
 ## License & the Change Date
 
@@ -206,5 +206,5 @@ BSL 1.1: all use is permitted **except offering Pangolin Scale as a hosted/manag
 orchestration service.** The **Change Date is four years from first publish**, at
 which point the license converts to **Apache-2.0**. Self-hosting is also the
 compliance model — regulated data never leaves your account. See
-[Licensing & BSL](/pangolin-scale/explanation/licensing-bsl/) and
-[ADR-0017](/pangolin-scale/explanation/decisions/0017-source-available-bsl/).
+[Licensing & BSL](/pangolin/explanation/licensing-bsl/) and
+[ADR-0017](/pangolin/explanation/decisions/0017-source-available-bsl/).

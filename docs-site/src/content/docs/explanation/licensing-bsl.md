@@ -19,7 +19,7 @@ and your own production workloads, and modify the source.
 You may not offer Pangolin Scale itself, or a product derived from it, to third parties as
 a hosted or managed orchestration / agent-dispatch service. In plain terms: you
 can run it for yourself; you cannot productise it as a service you sell or
-provide to others. The [`LICENSE`](https://github.com/quarrysystems/pangolin-scale/blob/main/LICENSE)
+provide to others. The [`LICENSE`](https://github.com/quarrysystems/pangolin/blob/main/LICENSE)
 file is always the authoritative statement of what is and isn't permitted — this
 page is a plain-language summary, not the grant.
 
@@ -29,7 +29,7 @@ If you're building Pangolin Scale into a product or service delivered to third p
 hosted **or** self-hosted — get in touch about commercial licensing. It keeps you
 on solid footing as the project's grant evolves toward a clean "free to build,
 pay to ship" line, and it's how the engine stays sustainably maintained.
-[Talk to us about a commercial license or pilot →](/pangolin-scale/commercial/).
+[Talk to us about a commercial license or pilot →](/pangolin/commercial/).
 
 ## When does it convert?
 
@@ -38,13 +38,13 @@ the Apache License, Version 2.0, which is a standard permissive open source
 license.
 
 **Policy note:** the Change Date advances with major releases per BSL customary
-practice; the date stated in [`LICENSE`](https://github.com/quarrysystems/pangolin-scale/blob/main/LICENSE)
+practice; the date stated in [`LICENSE`](https://github.com/quarrysystems/pangolin/blob/main/LICENSE)
 is always the authoritative value (currently 2030-06-01, four years from first
 publish).
 
 ## Full terms
 
-See the [`LICENSE`](https://github.com/quarrysystems/pangolin-scale/blob/main/LICENSE) file
+See the [`LICENSE`](https://github.com/quarrysystems/pangolin/blob/main/LICENSE) file
 in this repository, which incorporates the Business Source License 1.1 by
 reference from [mariadb.com/bsl11](https://mariadb.com/bsl11/), together with the
 Parameters (Licensor, Licensed Work, Additional Use Grant, Change Date, and
@@ -54,7 +54,7 @@ Change License) stated there.
 
 Pangolin Scale was first licensed under the Functional Source License 1.1, MIT Future
 License (`FSL-1.1-MIT`). The offload V1 work swapped it to BSL 1.1
-([ADR-0017](/pangolin-scale/explanation/decisions/0017-source-available-bsl/)). The
+([ADR-0017](/pangolin/explanation/decisions/0017-source-available-bsl/)). The
 decision turned on **adoption friction** for the users V1 targets: self-hosters
 and security/compliance-conscious teams running agents against their own repos,
 credentials, and regulated data.
@@ -69,7 +69,7 @@ credentials, and regulated data.
 - BSL is the **recognized incumbent** (MariaDB, CockroachDB, Sentry, HashiCorp) —
   lower legal-review friction than the newer FSL.
 - BSL's "no hosted service" line **maps onto the architecture already built**:
-  the §10.6 `client`/`service` [privilege split](/pangolin-scale/explanation/privilege-boundary/)
+  the §10.6 `client`/`service` [privilege split](/pangolin/explanation/privilege-boundary/)
   is the commercial boundary, and the future hosted multi-tenant control plane is
   the `service` side.
 
@@ -83,6 +83,6 @@ BSL is not OSI-approved.
 
 ## See also
 
-- [ADR-0017 — Pangolin Scale is source-available under BSL 1.1](/pangolin-scale/explanation/decisions/0017-source-available-bsl/)
-- [The privilege boundary](/pangolin-scale/explanation/privilege-boundary/) — the `client`/`service` split that is also the commercial boundary.
+- [ADR-0017 — Pangolin Scale is source-available under BSL 1.1](/pangolin/explanation/decisions/0017-source-available-bsl/)
+- [The privilege boundary](/pangolin/explanation/privilege-boundary/) — the `client`/`service` split that is also the commercial boundary.
 </content>

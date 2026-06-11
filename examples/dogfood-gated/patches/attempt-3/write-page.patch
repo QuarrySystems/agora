@@ -9,7 +9,7 @@ index 0000000..b39e4a8
 +description: How queue-level execution patterns (static-dag, pipeline, map-reduce) layer above the engine tick — including the extendRun seam, run.extended audit events, the gate/respawn circle-back, and the forward-arc-never-rewind invariant.
 +---
 +
-+The core engine described in [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/)
++The core engine described in [How an offload run executes](/pangolin/explanation/how-offload-runs/)
 +is deliberately simple: a DAG of WorkItems, a dependency resolver, and a
 +fire-and-reconcile tick loop. Execution patterns are a **strategy layer above that
 +engine** — they inspect terminal items after each tick and may append new items to
@@ -179,12 +179,12 @@ index 0000000..b39e4a8
 +
 +## See also
 +
-+- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — the engine
++- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — the engine
 +  mechanics that patterns layer above: tick loop, `depends_on`, `resourceLocks`,
 +  retry, and seal.
-+- [plan.json schema](/pangolin-scale/reference/plan-json/) — the WorkItem fields, including
++- [plan.json schema](/pangolin/reference/plan-json/) — the WorkItem fields, including
 +  `depends_on`, `resourceLocks`, and `executor`, that patterns read and produce.
-+- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — what
++- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — what
 +  `run.extended` events contribute to the audit bundle and what `pangolin verify` checks.
-+- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — a worked example
++- [Your first offload run](/pangolin/tutorials/first-offload-run/) — a worked example
 +  showing a static DAG before patterns are involved.

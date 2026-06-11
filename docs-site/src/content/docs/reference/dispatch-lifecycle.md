@@ -81,8 +81,8 @@ rejects a literal `seal` block), and no caller can omit or reorder it — every
 successful pipeline ends with the sealed output sentinel.
 
 A **declared pipeline** replaces the default: register a spec with
-[`pangolin pipeline register`](/pangolin-scale/reference/cli/#pangolin-pipeline) (or
-[`client.pipeline.register`](/pangolin-scale/reference/pangolin-client-api/#clientpipeline)),
+[`pangolin pipeline register`](/pangolin/reference/cli/#pangolin-pipeline) (or
+[`client.pipeline.register`](/pangolin/reference/pangolin-client-api/#clientpipeline)),
 then pin its ref on the work item's reserved `inputs.pipeline` key. The pinned
 spec rides the existing bundle channel (`PANGOLIN_BUNDLE_REFS_JSON`), is
 integrity-verified against its content hash, and is **re-validated by the
@@ -115,7 +115,7 @@ model is a non-empty string.
 
 For the level vocabulary (`fast` / `standard` / `max` and pass-through
 provider-native ids), see the
-[model field and level vocabulary table](/pangolin-scale/reference/pangolin-client-api/#model-field-and-level-vocabulary).
+[model field and level vocabulary table](/pangolin/reference/pangolin-client-api/#model-field-and-level-vocabulary).
 
 ### Actual usage in the output sentinel
 
@@ -189,7 +189,7 @@ The worker emits a `verify.ran` event:
 | `dispatch.cancelled` | `pangolin dispatch cancel <id>` was honored mid-flight | n/a |
 
 The vocabulary is intentionally closed. Future kinds would require an ADR
-amendment (see [ADR-0004 — lifecycle vocabulary closed at six](/pangolin-scale/explanation/decisions/0004-lifecycle-vocabulary-closed-at-six/)).
+amendment (see [ADR-0004 — lifecycle vocabulary closed at six](/pangolin/explanation/decisions/0004-lifecycle-vocabulary-closed-at-six/)).
 
 Ordered across the worker's steps, the six events and the four
 `dispatch.failed` reason branch points look like this:
@@ -316,7 +316,7 @@ require `pangolin env get` upgrades or a manual storage inspection).
 **"setup-script.ran shows only one of my N skills installed."** Multiple
 capabilities each shipped a `pangolin-setup.sh`. Only one wins
 (last-write-wins on the filename). See
-[Worker file layout](/pangolin-scale/how-to/worker-file-layout/) — files at adapter-
+[Worker file layout](/pangolin/how-to/worker-file-layout/) — files at adapter-
 reserved paths (`.claude/skills/<name>/`) compose; setup scripts don't.
 
 **"runtime.adapter.ran stdout says 'git commands are being denied' / 'requires approval'."**
@@ -333,6 +333,6 @@ For S3, check that nothing else is writing to the same prefix.
 
 ## See also
 
-- [ADR-0004 — why the lifecycle vocabulary is closed at six kinds](/pangolin-scale/explanation/decisions/0004-lifecycle-vocabulary-closed-at-six/).
-- [ADR-0008](/pangolin-scale/explanation/decisions/0008-needs-input-request-stop-restart/), [ADR-0009](/pangolin-scale/explanation/decisions/0009-needs-input-sentinel-file-vs-exit-code/) — the needs_input convention.
-- [MVP spec](https://github.com/quarrysystems/pangolin-scale/blob/main/docs/superpowers/specs/2026-05-21-pangolin-scale-mvp-design.md) §6.2 (the 14-step lifecycle), §6.3 (overlay/merge), §5.7 (lifecycle event types).
+- [ADR-0004 — why the lifecycle vocabulary is closed at six kinds](/pangolin/explanation/decisions/0004-lifecycle-vocabulary-closed-at-six/).
+- [ADR-0008](/pangolin/explanation/decisions/0008-needs-input-request-stop-restart/), [ADR-0009](/pangolin/explanation/decisions/0009-needs-input-sentinel-file-vs-exit-code/) — the needs_input convention.
+- [MVP spec](https://github.com/quarrysystems/pangolin/blob/main/docs/superpowers/specs/2026-05-21-pangolin-scale-mvp-design.md) §6.2 (the 14-step lifecycle), §6.3 (overlay/merge), §5.7 (lifecycle event types).

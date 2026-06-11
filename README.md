@@ -18,7 +18,7 @@ default path.
 Pangolin Scale is **source-available** under the Business Source License 1.1 — see
 [LICENSE](./LICENSE) and [LICENSING.md](./LICENSING.md).
 
-📖 **Docs:** https://quarrysystems.github.io/pangolin-scale
+📖 **Docs:** https://quarrysystems.github.io/pangolin
 
 ## Install
 
@@ -141,7 +141,7 @@ Plus:
   [`pattern-dogfood/`](examples/pattern-dogfood/) (gated circle-back via
   spawn); [`data-mapreduce/`](examples/data-mapreduce/) (the `data` pack: a
   second domain on the same engine, fully offline).
-- [Architecture decisions](https://quarrysystems.github.io/pangolin-scale/explanation/decisions/) — ADRs for the substantive design
+- [Architecture decisions](https://quarrysystems.github.io/pangolin/explanation/decisions/) — ADRs for the substantive design
   decisions taken during MVP design (published in the docs site).
 - [`docker/`](docker/) — the published worker OCI image build context.
 
@@ -149,36 +149,36 @@ Plus:
 
 Start here if you're new:
 
-- [Getting started](https://quarrysystems.github.io/pangolin-scale/tutorials/first-dispatch/) — zero-to-first-dispatch on
+- [Getting started](https://quarrysystems.github.io/pangolin/tutorials/first-dispatch/) — zero-to-first-dispatch on
   local Docker. Build the worker image, write `pangolin.config.mjs`, wire the
   CLI and MCP server, register and dispatch.
-- [Your first offload run](https://quarrysystems.github.io/pangolin-scale/tutorials/first-offload-run/) — submit a
+- [Your first offload run](https://quarrysystems.github.io/pangolin/tutorials/first-offload-run/) — submit a
   small DAG, watch it fan out under resource locks, and verify the audit bundle.
 
 Reference:
 
-- [Dispatch lifecycle](https://quarrysystems.github.io/pangolin-scale/reference/dispatch-lifecycle/) — what each event in the
+- [Dispatch lifecycle](https://quarrysystems.github.io/pangolin/reference/dispatch-lifecycle/) — what each event in the
   worker stdout stream means, which lifecycle step each `dispatch.failed`
   reason maps to.
-- [Worker file layout](https://quarrysystems.github.io/pangolin-scale/how-to/worker-file-layout/) — where to put files so the
+- [Worker file layout](https://quarrysystems.github.io/pangolin/how-to/worker-file-layout/) — where to put files so the
   worker picks them up (skills, settings, plugins, setup scripts), and the
   `pangolin-setup.sh` single-slot constraint that catches first-time authors.
-- [Sync capabilities & subagents](https://quarrysystems.github.io/pangolin-scale/how-to/sync-capabilities-subagents/) — `pangolin capabilities sync` /
+- [Sync capabilities & subagents](https://quarrysystems.github.io/pangolin/how-to/sync-capabilities-subagents/) — `pangolin capabilities sync` /
   `pangolin subagent sync` reference, the `claude-code` and `stoa` providers
   shipped today, and how to author a new one.
-- [Handle needs_input](https://quarrysystems.github.io/pangolin-scale/how-to/handle-needs-input/) — how a sub-agent pauses for
+- [Handle needs_input](https://quarrysystems.github.io/pangolin/how-to/handle-needs-input/) — how a sub-agent pauses for
   clarification, what the orchestrator does with the question, and how
   re-dispatch threads continuity through `partial_state`.
-- [How an offload run executes](https://quarrysystems.github.io/pangolin-scale/explanation/how-offload-runs/) — run a DAG of agent
+- [How an offload run executes](https://quarrysystems.github.io/pangolin/explanation/how-offload-runs/) — run a DAG of agent
   tasks unattended with `pangolin orch serve | submit | watch | cancel | audit`:
   queues/deps/resource-locks, the patch escape (`result_ref`), and the
   verifiable audit bundle + guarantee tiers.
 
 Extension + deployment:
 
-- [Writing a provider](https://quarrysystems.github.io/pangolin-scale/how-to/write-a-provider/) — plug in a new compute
+- [Writing a provider](https://quarrysystems.github.io/pangolin/how-to/write-a-provider/) — plug in a new compute
   backend, storage layer, credential source, or result sink.
-- [Remote Docker dispatch](https://quarrysystems.github.io/pangolin-scale/how-to/remote-docker-dispatch/) — orchestrate
+- [Remote Docker dispatch](https://quarrysystems.github.io/pangolin/how-to/remote-docker-dispatch/) — orchestrate
   from one machine, run workers on another machine's Docker daemon.
 
 ## Architecture
@@ -186,7 +186,7 @@ Extension + deployment:
 > For the **end-to-end runtime process** (register → CLI/MCP surfaces + the
 > §10.6 privilege boundary → `dispatch` vs `orch` → worker sandbox → patch escape
 > → tamper-evident audit), see the
-> [Architecture overview](https://quarrysystems.github.io/pangolin-scale/explanation/architecture-overview/) — one rendered diagram
+> [Architecture overview](https://quarrysystems.github.io/pangolin/explanation/architecture-overview/) — one rendered diagram
 > of the whole flow. The graph below is the complementary **package dependency**
 > view.
 
@@ -255,12 +255,12 @@ check on `package.json` dependencies.
 
 ## Documentation
 
-- [Roadmap](ROADMAP.md) — what's shipped in V1, what's planned next (V1.1, additive), and what's left as a branch. Also as a [docs-site page](https://quarrysystems.github.io/pangolin-scale/explanation/project-status-roadmap/).
+- [Roadmap](ROADMAP.md) — what's shipped in V1, what's planned next (V1.1, additive), and what's left as a branch. Also as a [docs-site page](https://quarrysystems.github.io/pangolin/explanation/project-status-roadmap/).
 - [Changelog](CHANGELOG.md) — notable changes per release. [Releasing](RELEASING.md) documents how a release is cut (manual today).
 - [Full MVP design spec](docs/superpowers/specs/2026-05-21-agora-mvp-design.md) — the §1–§11 design canon.
 - [Orchestrator architecture spec](docs/superpowers/specs/2026-05-28-agora-orchestrator-design.md) — the *pangolin-offload* design: registries, effect tiers, queues/deps/locks, the intent outbox, and the trunk trap-check driving the `pangolin-orchestrator` package.
-- [Offload V1 delivery spec](docs/superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the shipped V1 slice (`serve` + escape + tamper-evident audit + operator surface), the security/determinism/auditability edge, and the honesty constraints. See also [How an offload run executes](https://quarrysystems.github.io/pangolin-scale/explanation/how-offload-runs/).
-- [Architecture decisions](https://quarrysystems.github.io/pangolin-scale/explanation/decisions/) — eighteen ADRs covering
+- [Offload V1 delivery spec](docs/superpowers/specs/2026-05-29-agora-offload-v1-design.md) — the shipped V1 slice (`serve` + escape + tamper-evident audit + operator surface), the security/determinism/auditability edge, and the honesty constraints. See also [How an offload run executes](https://quarrysystems.github.io/pangolin/explanation/how-offload-runs/).
+- [Architecture decisions](https://quarrysystems.github.io/pangolin/explanation/decisions/) — eighteen ADRs covering
   package scope, repo location, runtime-adapter seam, secret TTL,
   lifecycle vocabulary, MCP auth model, the source-available (BSL) license,
   orchestration-as-a-separate-layer (ADR-0018, superseding ADR-0010), and more.

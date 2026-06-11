@@ -18,8 +18,8 @@ index 0000000..a5a68e0
 +answer with new work to add to the same run.
 +
 +For the tick loop that patterns plug into, see
-+[How an offload run executes](/pangolin-scale/explanation/how-offload-runs/). For the
-+shape of a plan, see the [plan.json reference](/pangolin-scale/reference/plan-json/). This
++[How an offload run executes](/pangolin/explanation/how-offload-runs/). For the
++shape of a plan, see the [plan.json reference](/pangolin/reference/plan-json/). This
 +page is about what happens *above* the engine between ticks.
 +
 +## What an execution pattern is
@@ -217,7 +217,7 @@ index 0000000..a5a68e0
 +
 +## See also
 +
-+- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — the tick loop patterns plug into.
-+- [plan.json schema](/pangolin-scale/reference/plan-json/) — WorkItem fields including `depends_on`, `outputs`, and `resourceLocks`.
-+- [Architecture overview](/pangolin-scale/explanation/architecture-overview/) — where patterns sit in the full system.
-+- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — what `run.extended` entries contribute to the audit bundle.
++- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — the tick loop patterns plug into.
++- [plan.json schema](/pangolin/reference/plan-json/) — WorkItem fields including `depends_on`, `outputs`, and `resourceLocks`.
++- [Architecture overview](/pangolin/explanation/architecture-overview/) — where patterns sit in the full system.
++- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — what `run.extended` entries contribute to the audit bundle.

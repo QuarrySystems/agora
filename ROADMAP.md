@@ -115,7 +115,7 @@ below.
   `AwsCredentialProvider`, and the `S3ObjectLockAnchor` for the
   external-immutable audit tier), but the maintainers have **not** run the full
   Fargate+S3 path end-to-end. Treat the
-  [Deploy to Fargate + S3](https://quarrysystems.github.io/pangolin-scale/how-to/deploy-fargate-s3/)
+  [Deploy to Fargate + S3](https://quarrysystems.github.io/pangolin/how-to/deploy-fargate-s3/)
   guide as a first-run guide, not a tested recipe. Note: no concrete
   `S3LockClient` adapter ships — the interface is provided; you implement it.
 
@@ -217,7 +217,7 @@ Pangolin Scale is licensed under **BSL 1.1**. The Additional Use Grant permits a
 **Change Date is four years from first publish**, at which point the license
 converts to **Apache-2.0**. Self-hosting is also the compliance model: regulated
 data never leaves your account. See [`LICENSING.md`](LICENSING.md) and
-[ADR-0017](https://quarrysystems.github.io/pangolin-scale/explanation/decisions/0017-source-available-bsl/).
+[ADR-0017](https://quarrysystems.github.io/pangolin/explanation/decisions/0017-source-available-bsl/).
 
 ## Influencing the roadmap
 

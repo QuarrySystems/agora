@@ -9,7 +9,7 @@ index 0000000..b1bd7b4
 +description: How queue-level execution patterns (static-dag, pipeline, map-reduce) layer above the tick engine — the Pattern contract, the extendRun seam, run.extended audit entries, the gate/respawn circle-back, and the forward-arc-never-rewind invariant.
 +---
 +
-+The core tick engine described in [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/)
++The core tick engine described in [How an offload run executes](/pangolin/explanation/how-offload-runs/)
 +handles one responsibility: advancing a fixed DAG of **WorkItems** through their
 +status lattice. Execution patterns are a separate layer built *on top of* that
 +engine — they let a queue answer a richer question: "now that some items have
@@ -290,13 +290,13 @@ index 0000000..b1bd7b4
 +
 +## See also
 +
-+- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — the core
++- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — the core
 +  tick engine that execution patterns sit above.
-+- [plan.json schema](/pangolin-scale/reference/plan-json/) — the WorkItem fields that
++- [plan.json schema](/pangolin/reference/plan-json/) — the WorkItem fields that
 +  patterns populate when spawning (`depends_on`, `resourceLocks`, `executor`,
 +  `needs`).
-+- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — how
++- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — how
 +  `run.extended` entries are covered by the audit bundle and what `pangolin verify`
 +  checks.
-+- [Architecture overview](/pangolin-scale/explanation/architecture-overview/) — where
++- [Architecture overview](/pangolin/explanation/architecture-overview/) — where
 +  patterns fit in the whole system.

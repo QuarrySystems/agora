@@ -29,7 +29,7 @@ every other package depends on it and nothing else by default.
 
 :::note
 The README labels the pangolin-mcp tool surface as "exactly six run-time tools."
-The shipped server exposes **nine** — see [MCP tools](/pangolin-scale/reference/mcp-tools/).
+The shipped server exposes **nine** — see [MCP tools](/pangolin/reference/mcp-tools/).
 :::
 
 ## Dependency graph

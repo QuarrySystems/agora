@@ -204,7 +204,7 @@ this page is too.
 
 ## Where to go next
 
-- [Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/) — produce a
+- [Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/) — produce a
   bundle and read its report, tier and all.
-- [CLI reference](/pangolin-scale/reference/cli/) — the `pangolin orch audit` command and its
+- [CLI reference](/pangolin/reference/cli/) — the `pangolin orch audit` command and its
   output shape.

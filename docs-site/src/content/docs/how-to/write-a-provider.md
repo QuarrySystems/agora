@@ -211,14 +211,14 @@ not on a fixed set.
 The shipped providers each have a unit test suite and an integration
 suite. For ComputeProviders the integration test is the canonical
 "register → dispatch → assert exit 0" flow.
-[`examples/hello-world/`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/hello-world) is the
+[`examples/hello-world/`](https://github.com/quarrysystems/pangolin/tree/main/examples/hello-world) is the
 template — copy it, swap your provider in, and the rest of the
 integration code is identical (that's the whole point of the seam).
 
 ## See also
 
 - MVP spec §5 (provider contracts), §5.1-§5.7 for per-interface details.
-- [ADR-0014](/pangolin-scale/explanation/decisions/0014-stdout-cap/) (stdout cap), [ADR-0015](/pangolin-scale/explanation/decisions/0015-capability-size-cap/) (capability size cap) — sizing limits
+- [ADR-0014](/pangolin/explanation/decisions/0014-stdout-cap/) (stdout cap), [ADR-0015](/pangolin/explanation/decisions/0015-capability-size-cap/) (capability size cap) — sizing limits
   your provider must respect.
-- [ADR-0011](/pangolin-scale/explanation/decisions/0011-no-entrypoint-override-at-dispatch/) — no entrypoint override at dispatch (the runtime spawns the
+- [ADR-0011](/pangolin/explanation/decisions/0011-no-entrypoint-override-at-dispatch/) — no entrypoint override at dispatch (the runtime spawns the
   adapter, not user-supplied commands).

@@ -3,17 +3,17 @@ title: How an offload run executes
 description: How the orchestrator schedules a run — named queues, depends_on resolution, disjoint vs shared resource-locks, the fire-and-reconcile tick loop, and the patch escape.
 ---
 
-A single [`pangolin dispatch`](/pangolin-scale/reference/cli/) runs one unit of work *now* and
+A single [`pangolin dispatch`](/pangolin/reference/cli/) runs one unit of work *now* and
 blocks until it exits. An **offload run** is different: you submit a whole DAG of
 work, and a long-running daemon fans it out safely across an isolated worker pool,
 unattended, producing a verifiable audit trail of exactly what ran. This page
 explains *how* that scheduling happens — the mechanics behind the
-[first offload run tutorial](/pangolin-scale/tutorials/first-offload-run/), grounded in the
+[first offload run tutorial](/pangolin/tutorials/first-offload-run/), grounded in the
 `pangolin-orchestrator` engine.
 
-For the *shape* of a plan see the [plan.json reference](/pangolin-scale/reference/plan-json/);
+For the *shape* of a plan see the [plan.json reference](/pangolin/reference/plan-json/);
 for where the run sits in the whole system see the
-[architecture overview](/pangolin-scale/explanation/architecture-overview/). This page is
+[architecture overview](/pangolin/explanation/architecture-overview/). This page is
 about the algorithm in the middle.
 
 ## The model: Queue, Run, WorkItem
@@ -79,7 +79,7 @@ is disjoint. But anything touching a shared `package.json` declares that path as
 lock, and every item holding it serializes against every other. `resourceLocks`
 answers "is it *safe* to run alongside what's already running?"
 
-In the [fan-out example](/pangolin-scale/tutorials/first-offload-run/) the three `edit-*`
+In the [fan-out example](/pangolin/tutorials/first-offload-run/) the three `edit-*`
 items have disjoint per-file locks, so they are all eligible at once but only two
 run together (the queue is `concurrency: 2`); the third starts as soon as a slot
 frees. `verify` `depends_on` all three, so it waits regardless of locks.
@@ -87,7 +87,7 @@ frees. `verify` `depends_on` all three, so it waits regardless of locks.
 ## The fire-and-reconcile tick loop
 
 The daemon never *pushes* work and never blocks on a running item. It **polls**:
-each `tick()` advances one queue by one step, and the [`serve`](/pangolin-scale/reference/cli/)
+each `tick()` advances one queue by one step, and the [`serve`](/pangolin/reference/cli/)
 loop calls `tick()` on a fixed interval (2 s in the example). A single tick runs
 four ordered phases:
 
@@ -220,9 +220,9 @@ already owns, so they survive restarts. The operator surface is
 `pangolin orch schedule add|list|rm`; these verbs are CLI-only (not MCP-reachable).
 
 For the full architecture, catch-up policy, and idempotency mechanics, see the
-[cron scheduling design spec](https://github.com/quarrysystems/pangolin-scale/blob/main/docs/superpowers/specs/2026-06-02-pangolin-scale-cron-trigger-design.md).
+[cron scheduling design spec](https://github.com/quarrysystems/pangolin/blob/main/docs/superpowers/specs/2026-06-02-pangolin-scale-cron-trigger-design.md).
 For the how-to walkthrough, see
-[Schedule recurring runs](/pangolin-scale/how-to/schedule-recurring-runs/).
+[Schedule recurring runs](/pangolin/how-to/schedule-recurring-runs/).
 
 ## The patch escape: how results leave the sandbox
 
@@ -243,12 +243,12 @@ This is the one thing that escapes the sandbox by default, and it escapes as a
 storage to review it. A run that changes nothing produces no `result_ref`. The
 audit bundle's per-item records, likewise, carry refs only — never secret values —
 so the bundle is safe to hand an auditor (see
-[audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/)).
+[audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/)).
 
 ## Running serve in a container (self-hosted delivery)
 
 When `serve` itself runs **in a container** (the self-hosted topology — e.g.
-[`examples/offload-minio/`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/offload-minio/),
+[`examples/offload-minio/`](https://github.com/quarrysystems/pangolin/tree/main/examples/offload-minio/),
 or Fargate) it launches workers as **siblings on the host Docker daemon**, not as
 children inside itself. That one fact dictates how config and secrets reach a
 worker: anything that lives only inside the `serve` container's filesystem is
@@ -304,7 +304,7 @@ The costs, concretely:
   `StorageProvider`.)
 - **Single-writer run-state.** One `serve` owns the SQLite DB — a throughput ceiling
   and SPOF for that orchestrator (deliberate for overnight offload; see
-  [ADR-0018](/pangolin-scale/explanation/decisions/0018-orchestration-ships-as-a-layer/)).
+  [ADR-0018](/pangolin/explanation/decisions/0018-orchestration-ships-as-a-layer/)).
 - **Orchestration overhead.** submit → poll → tick → resolve → container spin →
   worker fetch → run. The overhead dwarfs a sub-second task; it's batch-shaped.
 
@@ -320,8 +320,8 @@ so you don't have to.
 
 ## See also
 
-- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — run this end to end.
-- [pangolin.config reference](/pangolin-scale/reference/config/#targeting-a-self-hosted--s3-compatible-store-minio-localstack) — the self-hosted S3 / MinIO options.
-- [plan.json schema](/pangolin-scale/reference/plan-json/) — every field of a Run / WorkItem.
-- [Architecture overview](/pangolin-scale/explanation/architecture-overview/) — where the run sits in the whole system.
-- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — what the audit bundle proves.
+- [Your first offload run](/pangolin/tutorials/first-offload-run/) — run this end to end.
+- [pangolin.config reference](/pangolin/reference/config/#targeting-a-self-hosted--s3-compatible-store-minio-localstack) — the self-hosted S3 / MinIO options.
+- [plan.json schema](/pangolin/reference/plan-json/) — every field of a Run / WorkItem.
+- [Architecture overview](/pangolin/explanation/architecture-overview/) — where the run sits in the whole system.
+- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — what the audit bundle proves.

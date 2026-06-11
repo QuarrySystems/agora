@@ -22,9 +22,9 @@ index 0000000..8235fa3
 +every dynamically grown run graph correct.
 +
 +For the engine tick mechanics that patterns build on, see
-+[How an offload run executes](/pangolin-scale/explanation/how-offload-runs/). For the run
++[How an offload run executes](/pangolin/explanation/how-offload-runs/). For the run
 +graph format that `extendRun` validates against, see the
-+[plan.json reference](/pangolin-scale/reference/plan-json/).
++[plan.json reference](/pangolin/reference/plan-json/).
 +
 +## The three patterns
 +
@@ -234,13 +234,13 @@ index 0000000..8235fa3
 +
 +## See also
 +
-+- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — the
++- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — the
 +  engine tick, dep-resolver, lock manager, and fire-and-reconcile loop that
 +  patterns build on.
-+- [plan.json schema](/pangolin-scale/reference/plan-json/) — the item and edge format
++- [plan.json schema](/pangolin/reference/plan-json/) — the item and edge format
 +  that `extendRun` validates against.
-+- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — what
++- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — what
 +  the `run.extended` entries prove and how they compose with the rest of the
 +  audit bundle.
-+- [Architecture overview](/pangolin-scale/explanation/architecture-overview/) — where
++- [Architecture overview](/pangolin/explanation/architecture-overview/) — where
 +  patterns sit in the full system.

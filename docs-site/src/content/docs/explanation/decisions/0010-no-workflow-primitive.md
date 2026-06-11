@@ -14,7 +14,7 @@ posture** — that orchestration "sits above Pangolin Scale, not inside it" and 
 scope forever," and that the MCP surface "stays at six tools" — has been reversed.
 Pangolin Scale now ships orchestration as a separate, opt-in layer (`pangolin-orchestrator` /
 offload), and the MCP surface is nine tools. See
-[ADR-0018](/pangolin-scale/explanation/decisions/0018-orchestration-ships-as-a-layer/).
+[ADR-0018](/pangolin/explanation/decisions/0018-orchestration-ships-as-a-layer/).
 The original text is preserved below as the point-in-time record.
 :::
 
