@@ -1,0 +1,8 @@
+{
+  "claimId": "CLM-001",
+  "claimant": "Jordan Rivera",
+  "service": "MRI lumbar spine (CPT 72148)",
+  "denialReason": "Not medically necessary — conservative therapy not documented.",
+  "policySection": "§4.2 Advanced Imaging — prior conservative care",
+  "supportingFacts": "6 weeks of physical therapy completed 2026-03; ongoing radiculopathy documented in 2026-04 progress note."
+}

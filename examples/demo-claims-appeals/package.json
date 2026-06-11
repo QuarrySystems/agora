@@ -1,0 +1,27 @@
+{
+  "name": "demo-claims-appeals-example",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GTM demo (Mode A): batch run+seal over a fan-out of denied insurance claims → drafted appeals → tamper-detecting audit bundle. Domain-flavored reskin of offload-fanout. Runnable real-Docker demo (src/index.ts) + deterministic CI smoke test (test/claims-appeals.test.ts).",
+  "type": "module",
+  "license": "BUSL-1.1",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "start:env": "tsx --env-file=../../.env src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --strict src/index.ts test/claims-appeals.test.ts",
+    "build": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --strict src/index.ts"
+  },
+  "dependencies": {
+    "@quarry-systems/pangolin-client": "workspace:*",
+    "@quarry-systems/pangolin-orchestrator": "workspace:*",
+    "@quarry-systems/pangolin-providers-local-docker": "workspace:*",
+    "@quarry-systems/pangolin-secret-store": "workspace:*",
+    "@quarry-systems/pangolin-storage-local": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "claimId": "CLM-002",
+  "claimant": "Priya Anand",
+  "service": "Continuous glucose monitor (HCPCS E2103)",
+  "denialReason": "Experimental / investigational for the member's plan.",
+  "policySection": "§7.1 Durable Medical Equipment — diabetes management devices",
+  "supportingFacts": "Type 1 diabetes with documented hypoglycemia unawareness; endocrinologist letter of medical necessity on file dated 2026-02."
+}

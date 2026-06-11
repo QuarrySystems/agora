@@ -1,0 +1,8 @@
+{
+  "claimId": "CLM-003",
+  "claimant": "Marcus Lee",
+  "service": "Outpatient sleep study (CPT 95810)",
+  "denialReason": "Prior authorization not obtained before the service date.",
+  "policySection": "§3.4 Prior Authorization — retrospective review exceptions",
+  "supportingFacts": "Ordering physician's office submitted the auth request 2026-05-01; payer portal outage 2026-05-01 to 2026-05-03 prevented confirmation before the 2026-05-02 service date."
+}

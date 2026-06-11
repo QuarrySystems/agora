@@ -1,0 +1,34 @@
+{
+  "id": "claims-demo-1",
+  "queue": "default",
+  "items": [
+    {
+      "id": "appeal-001",
+      "executor": "dispatch",
+      "inputs": { "subagent": "claim-appeal", "workerInput": { "claim": "claim-001.json" } },
+      "depends_on": [],
+      "resourceLocks": ["appeals/CLM-001.md"]
+    },
+    {
+      "id": "appeal-002",
+      "executor": "dispatch",
+      "inputs": { "subagent": "claim-appeal", "workerInput": { "claim": "claim-002.json" } },
+      "depends_on": [],
+      "resourceLocks": ["appeals/CLM-002.md"]
+    },
+    {
+      "id": "appeal-003",
+      "executor": "dispatch",
+      "inputs": { "subagent": "claim-appeal", "workerInput": { "claim": "claim-003.json" } },
+      "depends_on": [],
+      "resourceLocks": ["appeals/CLM-003.md"]
+    },
+    {
+      "id": "verify",
+      "executor": "dispatch",
+      "inputs": { "subagent": "verify" },
+      "depends_on": ["appeal-001", "appeal-002", "appeal-003"],
+      "resourceLocks": []
+    }
+  ]
+}

@@ -26,6 +26,23 @@ export interface OrchContext {
 
 const resolveActor = (flag?: string): string => flag ?? process.env.PANGOLIN_ACTOR ?? `human:${userInfo().username}`;
 
+/**
+ * Pure helper: render a single per-item evidence line for `pangolin orch audit`.
+ * Exported for unit testing.
+ *
+ * Shows the pinned model per item, read from the sealed bundle manifest
+ * (`manifest.executorManifest.model.id`). Self-verify result + costUsd are NOT
+ * yet sealed into the audit bundle, so they are intentionally omitted here — see
+ * the follow-up to seal worker self-verify + usage into the bundle.
+ *
+ * @param itemId - the work item id (e.g. "appeal-001")
+ * @param model  - the pinned model id from the bundle manifest, or '' / undefined
+ */
+export function renderEvidenceLine(itemId: string, model: string | undefined): string {
+  const modelStr = model ? `model: ${model}` : 'model: -';
+  return `  ${itemId}  ${modelStr}`;
+}
+
 /** Named --pattern values → the real exported Pattern objects (spec §3 — `OrchContext`
  *  carries no queue/pattern wiring, so the flag is the v1 layout-selection path). */
 const PATTERNS: Record<string, Pattern> = { pipeline, 'map-reduce': mapReduce, 'static-dag': staticDag };
@@ -215,7 +232,28 @@ export function attachOrchCmd(program: Command, ctx: CliContext): void {
   });
 
   o.command('audit <run-id>').option('--out <path>').action(async (runId, opts) => {
-    const bundle = await new OperationsApi(await ctx.getOrchContext()).audit(runId);
+    const oc = await ctx.getOrchContext();
+    const api = new OperationsApi(oc);
+    const bundle = await api.audit(runId);
+
+    // Per-item evidence block (additive — printed to stderr before the JSON bundle).
+    // Reads the pinned model per item straight from the sealed bundle manifests
+    // (manifest.itemId + manifest.executorManifest.model.id). Self-verify + costUsd
+    // are not yet sealed into the bundle, so they are omitted (tracked follow-up).
+    try {
+      const manifests = Array.isArray(bundle.manifests) ? bundle.manifests : [];
+      if (manifests.length > 0) {
+        console.error('--- per-item evidence ---');
+        for (const m of manifests) {
+          // executorManifest is typed opaquely in the bundle; the dispatch executor
+          // seals { model: { id } } into it (see dispatch executor manifest).
+          const model = (m.executorManifest as { model?: { id?: string } } | undefined)?.model?.id;
+          console.error(renderEvidenceLine(m.itemId, model));
+        }
+        console.error('---');
+      }
+    } catch { /* best-effort — never fail the audit command itself */ }
+
     const json = JSON.stringify(bundle, null, 2);
     if (opts.out) await writeFile(opts.out, json); else console.log(json);
     if (!bundle.report.intact) process.exitCode = 1;   // audit failure → nonzero exit
