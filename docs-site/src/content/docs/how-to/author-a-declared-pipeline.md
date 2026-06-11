@@ -7,16 +7,16 @@ By default every dispatch runs the worker's built-in pipeline
 (`agent → capture(patch) → script(verify) → capture(outputs)`). A **declared
 pipeline** replaces that default with a block sequence you author — the
 mechanism behind non-agent work like the
-[data pipelines use case](/pangolin-scale/use-cases/data-pipelines/). This guide
+[data pipelines use case](/pangolin/use-cases/data-pipelines/). This guide
 takes a spec from authoring to sealed evidence. For what each block *does* at
 runtime, see
-[Dispatch lifecycle → The block-pipeline runner](/pangolin-scale/reference/dispatch-lifecycle/#the-block-pipeline-runner).
+[Dispatch lifecycle → The block-pipeline runner](/pangolin/reference/dispatch-lifecycle/#the-block-pipeline-runner).
 
 :::note[The authoring ceiling today]
 Pipelines are assembled from the three shipped block kinds — `agent`,
 `script`, `capture`. User-supplied custom code blocks and adapter blocks are
 explicitly deferred on the
-[roadmap](/pangolin-scale/explanation/project-status-roadmap/); if you need a
+[roadmap](/pangolin/explanation/project-status-roadmap/); if you need a
 behavior the shipped kinds can't express, that is a roadmap conversation, not
 a spec trick.
 :::
@@ -134,11 +134,11 @@ the pipeline ref itself is sealed into the dispatch manifest as
 `pipelineRef`. "This exact pipeline ran — every block, command, and lens" is
 provable from the audit bundle, on the same footing as the patch and input
 refs. See
-[Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/).
+[Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/).
 
 ## See also
 
-- [Assemble a pattern-driven plan](/pangolin-scale/how-to/assemble-a-pattern-plan/) — pipelines often pair with the map-reduce pattern (one declared pipeline per stage).
-- [`pangolin pipeline` CLI reference](/pangolin-scale/reference/cli/#pangolin-pipeline) — register / validate / list semantics.
-- [`client.pipeline` API](/pangolin-scale/reference/pangolin-client-api/#clientpipeline) — the programmatic surface.
-- [`examples/data-mapreduce`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/data-mapreduce) — four declared pipelines driving a fully offline run.
+- [Assemble a pattern-driven plan](/pangolin/how-to/assemble-a-pattern-plan/) — pipelines often pair with the map-reduce pattern (one declared pipeline per stage).
+- [`pangolin pipeline` CLI reference](/pangolin/reference/cli/#pangolin-pipeline) — register / validate / list semantics.
+- [`client.pipeline` API](/pangolin/reference/pangolin-client-api/#clientpipeline) — the programmatic surface.
+- [`examples/data-mapreduce`](https://github.com/quarrysystems/pangolin/tree/main/examples/data-mapreduce) — four declared pipelines driving a fully offline run.

@@ -8,13 +8,13 @@ A static `plan.json` fully specifies its DAG at submit time. A
 map item per data partition, and the pipeline pattern spawns a fix lineage
 when a gate goes red. This guide assembles both. For the model underneath —
 the `Pattern` contract, `extendRun`, and the forward-arc-never-rewind
-invariant — read [Execution patterns](/pangolin-scale/explanation/execution-patterns/)
+invariant — read [Execution patterns](/pangolin/explanation/execution-patterns/)
 first.
 
 ## 1. Bind the pattern to a queue
 
 Patterns are bound where the orchestrator is constructed — for the CLI
-`serve` path, that is your [`pangolin.config.mjs`](/pangolin-scale/reference/config/):
+`serve` path, that is your [`pangolin.config.mjs`](/pangolin/reference/config/):
 
 ```js
 import { PangolinOrchestrator } from '@quarry-systems/pangolin-orchestrator';
@@ -56,7 +56,7 @@ interface SpawnTemplate {              // a subset of WorkItem
 ```
 
 The splitter from
-[`examples/data-mapreduce/plan.json`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/data-mapreduce)
+[`examples/data-mapreduce/plan.json`](https://github.com/quarrysystems/pangolin/tree/main/examples/data-mapreduce)
 (refs abbreviated — the example fills them from runtime registration):
 
 ```json
@@ -109,7 +109,7 @@ interface GateConfig {
 ```
 
 The gate from
-[`examples/pattern-dogfood/plan.json`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/pattern-dogfood):
+[`examples/pattern-dogfood/plan.json`](https://github.com/quarrysystems/pangolin/tree/main/examples/pattern-dogfood):
 
 ```json
 {
@@ -158,7 +158,7 @@ the grown graph exactly as it covers a static one.
 
 ## See also
 
-- [Execution patterns](/pangolin-scale/explanation/execution-patterns/) — the contract and invariants these payloads drive.
-- [plan.json schema → pattern payloads](/pangolin-scale/reference/plan-json/#pattern-payloads-inputsgate-and-inputsmapreduce) — the field reference.
-- [Author & register a declared pipeline](/pangolin-scale/how-to/author-a-declared-pipeline/) — the per-stage pipelines map-reduce items typically pin.
-- [`examples/pattern-mapreduce`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/pattern-mapreduce) and [`examples/pattern-dogfood`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/pattern-dogfood) — both runnable offline, no Docker or API key.
+- [Execution patterns](/pangolin/explanation/execution-patterns/) — the contract and invariants these payloads drive.
+- [plan.json schema → pattern payloads](/pangolin/reference/plan-json/#pattern-payloads-inputsgate-and-inputsmapreduce) — the field reference.
+- [Author & register a declared pipeline](/pangolin/how-to/author-a-declared-pipeline/) — the per-stage pipelines map-reduce items typically pin.
+- [`examples/pattern-mapreduce`](https://github.com/quarrysystems/pangolin/tree/main/examples/pattern-mapreduce) and [`examples/pattern-dogfood`](https://github.com/quarrysystems/pangolin/tree/main/examples/pattern-dogfood) — both runnable offline, no Docker or API key.

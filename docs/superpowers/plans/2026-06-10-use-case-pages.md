@@ -6,7 +6,7 @@
 
 **Architecture:** Four standalone `.md` content pages under `docs-site/src/content/docs/use-cases/`, each following the spec's six-section anatomy and anchored to exactly one runnable example. Site wiring (sidebar + homepage) lands after the pages exist so the links validator passes at every commit. A final audit task enforces vocabulary discipline, DRY (link-don't-restate), and repo conventions.
 
-**Tech Stack:** Astro 6 + Starlight 0.39 (markdown content collections, `:::note` / `:::caution` aside directives, `starlight-links-validator` with `errorOnRelativeLinks: true` — all internal links MUST be absolute `/pangolin-scale/...` paths).
+**Tech Stack:** Astro 6 + Starlight 0.39 (markdown content collections, `:::note` / `:::caution` aside directives, `starlight-links-validator` with `errorOnRelativeLinks: true` — all internal links MUST be absolute `/pangolin/...` paths).
 
 **Spec:** `docs/superpowers/specs/2026-06-10-use-case-pages-design.md`
 
@@ -51,7 +51,7 @@ sandboxed, and sealing a verifiable record of every run.
 ## What you get
 
 The shipped demo for this use case is
-[`examples/demo-claims-appeals`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/demo-claims-appeals):
+[`examples/demo-claims-appeals`](https://github.com/quarrysystems/pangolin/tree/main/examples/demo-claims-appeals):
 a batch of three denied insurance claims fans out to parallel agents that each
 draft an appeal, self-verify their own work, and seal the evidence.
 
@@ -80,7 +80,7 @@ exit code — that is the demo's closing beat.
 
 1. `plan.json` declares three `claim-appeal` items plus a `verify` gate that
    depends on all three. The orchestrator resolves dependencies, locks, and
-   concurrency — see [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/).
+   concurrency — see [How an offload run executes](/pangolin/explanation/how-offload-runs/).
 2. Each item dispatches into an isolated Docker container. The agent reads one
    synthetic claim fixture (`claimId`, `denialReason`, `policySection`, …) and
    drafts `appeals/<claimId>.md` in its own workspace.
@@ -88,9 +88,9 @@ exit code — that is the demo's closing beat.
    worker; its result is sealed into the manifest alongside the patch.
 4. On completion the run seals its epoch: every lifecycle event is hash-chained,
    the chain is reduced to a Merkle root, and the root is signed and anchored —
-   see [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+   see [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 5. `pangolin verify` re-verifies the exported bundle — see
-   [Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/).
+   [Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/).
 
 The claims domain is a reskin, not a special case: swap the fixtures and the
 `claim-appeal` prompt to draft legal filings, reconciliations, or procurement
@@ -121,7 +121,7 @@ pnpm --filter demo-claims-appeals-example test
   **tamper-detecting** — the root lives in the same store as the log. The
   **tamper-evident** claim requires the `external-immutable` tier
   (`S3ObjectLockAnchor`); see
-  [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+  [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 - The claim fixtures are **synthetic** — no real PHI anywhere in the example.
 - The canonical run is the single-process driver shown above. The multi-process
   CLI flow (`pangolin orch serve` / `submit` / `audit` as separate processes)
@@ -134,9 +134,9 @@ pnpm --filter demo-claims-appeals-example test
 
 ## Next steps
 
-- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — the tutorial behind this demo.
-- [Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/) — produce and re-verify the evidence.
-- [Commercial & pilots](/pangolin-scale/commercial/) — white-glove pilot for your regulated deal.
+- [Your first offload run](/pangolin/tutorials/first-offload-run/) — the tutorial behind this demo.
+- [Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/) — produce and re-verify the evidence.
+- [Commercial & pilots](/pangolin/commercial/) — white-glove pilot for your regulated deal.
 ```
 
 - [ ] **Step 2: Vocabulary discipline check**
@@ -183,7 +183,7 @@ sealed record of what ran, so "unattended" stops meaning "unaccountable."
 ## What you get
 
 The acceptance demo for this use case is
-[`examples/offload-fanout`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/offload-fanout):
+[`examples/offload-fanout`](https://github.com/quarrysystems/pangolin/tree/main/examples/offload-fanout):
 three independent code edits fan out across Docker workers, then a verify gate
 checks the result.
 
@@ -208,7 +208,7 @@ checks the result.
 
 ## Gated circle-back: when review fails, the run fixes itself — on the record
 
-[`examples/pattern-dogfood`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/pattern-dogfood)
+[`examples/pattern-dogfood`](https://github.com/quarrysystems/pangolin/tree/main/examples/pattern-dogfood)
 shows the `pipeline` pattern's spawn-fix gate. When a `review` gate completes
 **done-but-red** (its verify check failed), the pattern appends a fix item, a
 re-review, and a re-run of the downstream task via the audited `extendRun`
@@ -217,8 +217,8 @@ sealed history — the run is never rewound, only extended with a forward arc.
 Every spawn writes a `run.extended` audit entry naming which gate fired and
 that the actor was the pattern layer, and provenance closure is checked across
 the grown graph. See
-[Execution patterns](/pangolin-scale/explanation/execution-patterns/) and
-[Typed-product handoff](/pangolin-scale/explanation/typed-product-handoff/).
+[Execution patterns](/pangolin/explanation/execution-patterns/) and
+[Typed-product handoff](/pangolin/explanation/typed-product-handoff/).
 
 ## Run it yourself
 
@@ -245,14 +245,14 @@ pnpm --filter pattern-dogfood-example start
 containers, no LLM — so it proves the engine's circle-back, audit, and
 provenance semantics, not live agent behavior. The default audit tier in both
 is **tamper-detecting** (`LocalAnchor`); see
-[Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+[Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 :::
 
 ## Next steps
 
-- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — submit your own plan.
-- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — queues, deps, locks, audit.
-- [Sandboxing AI agents](/pangolin-scale/explanation/sandboxing-ai-agents/) — the isolation model.
+- [Your first offload run](/pangolin/tutorials/first-offload-run/) — submit your own plan.
+- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — queues, deps, locks, audit.
+- [Sandboxing AI agents](/pangolin/explanation/sandboxing-ai-agents/) — the isolation model.
 ```
 
 - [ ] **Step 2: Vocabulary discipline check**
@@ -327,7 +327,7 @@ same store as the log, so it can never earn more than tamper-detecting; the
 `S3ObjectLockAnchor` writes the root to S3 Object Lock in COMPLIANCE mode — a
 separate trust domain that survives a database-side rewrite. The full model,
 including what each tier does **not** guarantee, is in
-[Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+[Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 
 ## Independent verification — what the auditor needs
 
@@ -344,7 +344,7 @@ needs two things:
 For programmatic use, the same check is the `verifyBundle(bundle, { anchor })`
 entry point exported from `@quarry-systems/pangolin-orchestrator`, so an
 auditor can re-verify inside their own tooling. The step-by-step flow is in
-[Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/).
+[Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/).
 
 ## Run it yourself
 
@@ -361,7 +361,7 @@ pnpm --filter demo-claims-appeals-example test
 - `S3ObjectLockAnchor` ships, but **no concrete `S3LockClient` adapter ships
   with it** — the interface is provided and you implement the client. The
   maintainers have not run the full Fargate + S3 path end-to-end; treat
-  [Deploy to Fargate + S3](/pangolin-scale/how-to/deploy-fargate-s3/) as a
+  [Deploy to Fargate + S3](/pangolin/how-to/deploy-fargate-s3/) as a
   first-run guide, not a tested recipe.
 - The `witnessed` tier (a cross-organization witness such as an RFC 3161
   timestamp authority or transparency log) is **reserved in the type system
@@ -377,9 +377,9 @@ pnpm --filter demo-claims-appeals-example test
 
 ## Next steps
 
-- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — the full trust model.
-- [Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/) — the hands-on flow.
-- [Commercial & pilots](/pangolin-scale/commercial/) — enterprise compliance modules and pilots.
+- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — the full trust model.
+- [Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/) — the hands-on flow.
+- [Commercial & pilots](/pangolin/commercial/) — enterprise compliance modules and pilots.
 ```
 
 - [ ] **Step 2: Vocabulary discipline check**
@@ -423,7 +423,7 @@ run plain data pipelines, with **zero engine changes**.
 ## What you get
 
 The proof is
-[`examples/data-mapreduce`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/data-mapreduce)
+[`examples/data-mapreduce`](https://github.com/quarrysystems/pangolin/tree/main/examples/data-mapreduce)
 — a map-reduce over CSV data that is **fully offline**: no Docker, no API key,
 no network.
 
@@ -456,8 +456,8 @@ no network.
 3. The pipeline steps are declared typed blocks from the `data` pack
    (`data.split` / `data.transform` / `data.aggregate`) — the second domain
    pack on the unchanged engine. See
-   [Execution patterns](/pangolin-scale/explanation/execution-patterns/) and
-   [Typed-product handoff](/pangolin-scale/explanation/typed-product-handoff/).
+   [Execution patterns](/pangolin/explanation/execution-patterns/) and
+   [Typed-product handoff](/pangolin/explanation/typed-product-handoff/).
 
 ## Run it yourself
 
@@ -478,9 +478,9 @@ domain-general** — not that data jobs are sandboxed by this demo.
 
 ## Next steps
 
-- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — the engine underneath.
-- [Typed-product handoff](/pangolin-scale/explanation/typed-product-handoff/) — `needs`, `inputRefs`, provenance closure.
-- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — the same engine with live workers.
+- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — the engine underneath.
+- [Typed-product handoff](/pangolin/explanation/typed-product-handoff/) — `needs`, `inputRefs`, provenance closure.
+- [Your first offload run](/pangolin/tutorials/first-offload-run/) — the same engine with live workers.
 ```
 
 - [ ] **Step 2: Vocabulary discipline check**
@@ -535,22 +535,22 @@ In `docs-site/src/content/docs/index.mdx`, insert this block between the `import
   <Card title="Regulated document drafting" icon="document">
     Batch-draft claims appeals, filings, or reconciliations with parallel
     agents — and hand over a verifiable audit bundle of exactly what ran.
-    [Read the use case →](/pangolin-scale/use-cases/regulated-document-drafting/)
+    [Read the use case →](/pangolin/use-cases/regulated-document-drafting/)
   </Card>
   <Card title="Dev offload" icon="laptop">
     Fan codebase maintenance out to sandboxed agents and get back reviewable
     patches — unattended, but never unaccountable.
-    [Read the use case →](/pangolin-scale/use-cases/dev-offload/)
+    [Read the use case →](/pangolin/use-cases/dev-offload/)
   </Card>
   <Card title="Compliance evidence" icon="approve-check">
     Export a sealed evidence bundle per run; an auditor re-verifies it with
     one command — guarantee tiers stated honestly.
-    [Read the use case →](/pangolin-scale/use-cases/compliance-evidence/)
+    [Read the use case →](/pangolin/use-cases/compliance-evidence/)
   </Card>
   <Card title="Data pipelines" icon="bars">
     The same provable engine for non-LLM batch jobs — typed handoffs, runtime
     fan-out, identical audit chain. Fully offline demo.
-    [Read the use case →](/pangolin-scale/use-cases/data-pipelines/)
+    [Read the use case →](/pangolin/use-cases/data-pipelines/)
   </Card>
 </CardGrid>
 ```
@@ -578,7 +578,7 @@ This is the adherence audit the operator requested. Each check is concrete; fix 
 - [ ] **Step 1: DRY / link-don't-restate check**
 
 Read all four pages in `docs-site/src/content/docs/use-cases/` and verify:
-- No page re-explains the hash-chain/Merkle/anchor mechanics beyond ~2 sentences — deep explanation must be a link to `/pangolin-scale/explanation/audit-guarantee-tiers/`.
+- No page re-explains the hash-chain/Merkle/anchor mechanics beyond ~2 sentences — deep explanation must be a link to `/pangolin/explanation/audit-guarantee-tiers/`.
 - No page reproduces the tier table from `audit-guarantee-tiers.md` or the report-field table from `verify-audit-bundle.mdx`.
 - No page duplicates another use-case page's terminal excerpt beyond the short 4-line bundle block (which is shared output, not explanation).
 
@@ -591,7 +591,7 @@ Read all four pages in `docs-site/src/content/docs/use-cases/` and verify:
 - [ ] **Step 3: Repo docs-pattern conformance**
 
 - Frontmatter is `title` + `description` only (matches every existing page).
-- All internal links are absolute `/pangolin-scale/...` (the validator enforces this — `errorOnRelativeLinks: true`).
+- All internal links are absolute `/pangolin/...` (the validator enforces this — `errorOnRelativeLinks: true`).
 - Asides use `:::note` / `:::caution` directive syntax (valid in `.md` under Starlight).
 - File names are kebab-case `.md` under `use-cases/`, matching content-collection conventions.
 

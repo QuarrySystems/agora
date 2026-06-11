@@ -44,7 +44,7 @@ same store as the log, so it can never earn more than tamper-detecting; the
 `S3ObjectLockAnchor` writes the root to S3 Object Lock in COMPLIANCE mode — a
 separate trust domain that survives a database-side rewrite. The full model,
 including what each tier does **not** guarantee, is in
-[Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+[Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 
 ## Independent verification — what the auditor needs
 
@@ -62,7 +62,7 @@ needs two things:
 For programmatic use, the same check is the `verifyBundle(bundle, { anchor })`
 entry point exported from `@quarry-systems/pangolin-orchestrator`, so an
 auditor can re-verify inside their own tooling. The step-by-step flow is in
-[Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/).
+[Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/).
 
 ## Run it yourself
 
@@ -79,7 +79,7 @@ pnpm --filter demo-claims-appeals-example test
 - `S3ObjectLockAnchor` ships, but **no concrete `S3LockClient` adapter ships
   with it** — the interface is provided and you implement the client. The
   maintainers have not run the full Fargate + S3 path end-to-end; treat
-  [Deploy to Fargate + S3](/pangolin-scale/how-to/deploy-fargate-s3/) as a
+  [Deploy to Fargate + S3](/pangolin/how-to/deploy-fargate-s3/) as a
   first-run guide, not a tested recipe.
 - The `witnessed` tier (a cross-organization witness such as an RFC 3161
   timestamp authority or transparency log) is **reserved in the type system
@@ -95,6 +95,6 @@ pnpm --filter demo-claims-appeals-example test
 
 ## Next steps
 
-- [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/) — the full trust model.
-- [Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/) — the hands-on flow.
-- [Commercial & pilots](/pangolin-scale/commercial/) — enterprise compliance modules and pilots.
+- [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/) — the full trust model.
+- [Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/) — the hands-on flow.
+- [Commercial & pilots](/pangolin/commercial/) — enterprise compliance modules and pilots.

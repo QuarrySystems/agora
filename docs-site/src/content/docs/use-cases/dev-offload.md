@@ -12,7 +12,7 @@ sealed record of what ran, so "unattended" stops meaning "unaccountable."
 ## What you get
 
 The acceptance demo for this use case is
-[`examples/offload-fanout`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/offload-fanout):
+[`examples/offload-fanout`](https://github.com/quarrysystems/pangolin/tree/main/examples/offload-fanout):
 three independent code edits fan out across Docker workers, then a verify gate
 checks the result.
 
@@ -42,19 +42,19 @@ checks the result.
    depends on all three; each item names the file it owns as a
    `resourceLock`. The orchestrator resolves dependencies, locks, and
    concurrency — see
-   [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/).
+   [How an offload run executes](/pangolin/explanation/how-offload-runs/).
 2. Each item dispatches into an isolated Docker container, where the agent
    edits its file in a private workspace — see
-   [Sandboxing AI agents](/pangolin-scale/explanation/sandboxing-ai-agents/).
+   [Sandboxing AI agents](/pangolin/explanation/sandboxing-ai-agents/).
 3. The workspace diff escapes as a content-addressed artifact and surfaces as
    the item's `resultRef`; the run-state database only ever holds references.
 4. After all items are terminal the run seals its epoch and the audit bundle
    is assembled and verified — see
-   [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+   [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 
 ## Gated circle-back: when review fails, the run fixes itself — on the record
 
-[`examples/pattern-dogfood`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/pattern-dogfood)
+[`examples/pattern-dogfood`](https://github.com/quarrysystems/pangolin/tree/main/examples/pattern-dogfood)
 shows the `pipeline` pattern's spawn-fix gate. When a `review` gate completes
 **done-but-red** (its verify check failed), the pattern appends a fix item, a
 re-review, and a re-run of the downstream task via the audited `extendRun`
@@ -63,8 +63,8 @@ sealed history — the run is never rewound, only extended with a forward arc.
 Every spawn writes a `run.extended` audit entry naming which gate fired, with
 the pattern layer as the recorded actor (`actor=pattern:default`), and
 provenance closure is checked across the grown graph. See
-[Execution patterns](/pangolin-scale/explanation/execution-patterns/) and
-[Typed-product handoff](/pangolin-scale/explanation/typed-product-handoff/).
+[Execution patterns](/pangolin/explanation/execution-patterns/) and
+[Typed-product handoff](/pangolin/explanation/typed-product-handoff/).
 
 ## Run it yourself
 
@@ -93,15 +93,15 @@ pnpm --filter pattern-dogfood-example start
 - The default audit tier in both is **tamper-detecting** (`LocalAnchor`). The
   stronger **tamper-evident** claim requires the `external-immutable` tier
   (`S3ObjectLockAnchor`); see
-  [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+  [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 - The vocabulary is **"compliance-ready," never "compliant" or "certified"** —
   the audit trail proves what ran, not that the output is correct. For the
   evidence/auditor story, see
-  [Compliance evidence](/pangolin-scale/use-cases/compliance-evidence/).
+  [Compliance evidence](/pangolin/use-cases/compliance-evidence/).
 :::
 
 ## Next steps
 
-- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — submit your own plan.
-- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — queues, deps, locks, audit.
-- [Sandboxing AI agents](/pangolin-scale/explanation/sandboxing-ai-agents/) — the isolation model.
+- [Your first offload run](/pangolin/tutorials/first-offload-run/) — submit your own plan.
+- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — queues, deps, locks, audit.
+- [Sandboxing AI agents](/pangolin/explanation/sandboxing-ai-agents/) — the isolation model.

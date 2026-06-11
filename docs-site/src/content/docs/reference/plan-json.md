@@ -132,9 +132,9 @@ interface SpawnTemplate {
 
 For what the patterns *do* with these payloads — spawn timing, deterministic
 ids, the red-gate lineage — see
-[Execution patterns](/pangolin-scale/explanation/execution-patterns/); for
+[Execution patterns](/pangolin/explanation/execution-patterns/); for
 authoring a working plan around them, see
-[Assemble a pattern-driven plan](/pangolin-scale/how-to/assemble-a-pattern-plan/).
+[Assemble a pattern-driven plan](/pangolin/how-to/assemble-a-pattern-plan/).
 
 :::note
 The lock field is `resourceLocks`, **not** `locks`. Some prose (including the

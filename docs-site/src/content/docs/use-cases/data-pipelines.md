@@ -12,7 +12,7 @@ run plain data pipelines, with **zero engine changes**.
 ## What you get
 
 The proof is
-[`examples/data-mapreduce`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/data-mapreduce)
+[`examples/data-mapreduce`](https://github.com/quarrysystems/pangolin/tree/main/examples/data-mapreduce)
 — a map-reduce over CSV data that is **fully offline**: no Docker, no API key,
 no network.
 
@@ -46,8 +46,8 @@ no network.
 3. Each item runs a declared block pipeline (script and capture steps), typed
    against the `data` pack's shapes (`data.split` / `data.transform` /
    `data.aggregate`) — the second domain pack on the unchanged engine. See
-   [Execution patterns](/pangolin-scale/explanation/execution-patterns/) and
-   [Typed-product handoff](/pangolin-scale/explanation/typed-product-handoff/).
+   [Execution patterns](/pangolin/explanation/execution-patterns/) and
+   [Typed-product handoff](/pangolin/explanation/typed-product-handoff/).
 
 ## Run it yourself
 
@@ -68,6 +68,6 @@ domain-general** — not that data jobs are sandboxed by this demo.
 
 ## Next steps
 
-- [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/) — the engine underneath.
-- [Typed-product handoff](/pangolin-scale/explanation/typed-product-handoff/) — `needs`, `inputRefs`, provenance closure.
-- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — the same engine with live workers.
+- [How an offload run executes](/pangolin/explanation/how-offload-runs/) — the engine underneath.
+- [Typed-product handoff](/pangolin/explanation/typed-product-handoff/) — `needs`, `inputRefs`, provenance closure.
+- [Your first offload run](/pangolin/tutorials/first-offload-run/) — the same engine with live workers.

@@ -13,7 +13,7 @@ sandboxed, and sealing a verifiable record of every run.
 ## What you get
 
 The shipped demo for this use case is
-[`examples/demo-claims-appeals`](https://github.com/quarrysystems/pangolin-scale/tree/main/examples/demo-claims-appeals):
+[`examples/demo-claims-appeals`](https://github.com/quarrysystems/pangolin/tree/main/examples/demo-claims-appeals):
 a batch of three denied insurance claims fans out to parallel agents that each
 draft an appeal, self-verify their own work, and seal the evidence.
 
@@ -42,7 +42,7 @@ exit code — that is the demo's closing beat.
 
 1. `plan.json` declares three `claim-appeal` items plus a `verify` gate that
    depends on all three. The orchestrator resolves dependencies, locks, and
-   concurrency — see [How an offload run executes](/pangolin-scale/explanation/how-offload-runs/).
+   concurrency — see [How an offload run executes](/pangolin/explanation/how-offload-runs/).
 2. Each item dispatches into an isolated Docker container. The agent reads one
    synthetic claim fixture (`claimId`, `denialReason`, `policySection`, …) and
    drafts `appeals/<claimId>.md` in its own workspace.
@@ -50,9 +50,9 @@ exit code — that is the demo's closing beat.
    worker; its result is sealed into the manifest alongside the patch.
 4. On completion the run seals its epoch: every lifecycle event is hash-chained,
    the chain is reduced to a Merkle root, and the root is signed and anchored —
-   see [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+   see [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 5. `pangolin verify` re-verifies the exported bundle — see
-   [Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/).
+   [Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/).
 
 The claims domain is a reskin, not a special case: swap the fixtures and the
 `claim-appeal` prompt to draft legal filings, reconciliations, or procurement
@@ -83,7 +83,7 @@ pnpm --filter demo-claims-appeals-example test
   **tamper-detecting** — the root lives in the same store as the log. The
   **tamper-evident** claim requires the `external-immutable` tier
   (`S3ObjectLockAnchor`); see
-  [Audit & guarantee tiers](/pangolin-scale/explanation/audit-guarantee-tiers/).
+  [Audit & guarantee tiers](/pangolin/explanation/audit-guarantee-tiers/).
 - The claim fixtures are **synthetic** — no real PHI anywhere in the example.
 - The canonical run is the single-process driver shown above. The multi-process
   CLI flow (`pangolin orch serve` / `submit` / `audit` as separate processes)
@@ -96,6 +96,6 @@ pnpm --filter demo-claims-appeals-example test
 
 ## Next steps
 
-- [Your first offload run](/pangolin-scale/tutorials/first-offload-run/) — the orchestrator tutorial (different example, same mechanics).
-- [Export & verify an audit bundle](/pangolin-scale/how-to/verify-audit-bundle/) — produce and re-verify the evidence.
-- [Commercial & pilots](/pangolin-scale/commercial/) — white-glove pilot for your regulated deal.
+- [Your first offload run](/pangolin/tutorials/first-offload-run/) — the orchestrator tutorial (different example, same mechanics).
+- [Export & verify an audit bundle](/pangolin/how-to/verify-audit-bundle/) — produce and re-verify the evidence.
+- [Commercial & pilots](/pangolin/commercial/) — white-glove pilot for your regulated deal.
