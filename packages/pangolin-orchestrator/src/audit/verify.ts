@@ -22,12 +22,24 @@ export async function verify(
   const g = deps.anchor.guarantee;
   const entries = deps.store.getAuditEntries(runId);
 
-  // 1. Recompute the chain and verify each entry's hash and chain linkage (collect-all — no early return)
-  let prev = '', chainOk = true, badSeq: number | undefined;
-  for (const e of entries) {
+  // 1. Recompute the chain: per-entry hash, chain linkage, AND seq contiguity.
+  //    verify() never returns early — the anchor is still fetched below even if the
+  //    chain fails (collect-all at the function level); the loop stops at the first
+  //    broken link since later links are meaningless once the chain is cut.
+  //    The seq check enforces the spec's "completeness / no-gaps" requirement: it
+  //    catches a deleted entry whose chain was re-linked to look self-consistent
+  //    (the one tamper a mutable 'detect' anchor + valid linkage would otherwise hide).
+  let prev = '', chainOk = true, chainDetail: string | undefined;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]!;
+    if (e.seq !== i) {
+      chainOk = false;
+      chainDetail = `non-contiguous seq at index ${i}: expected ${i}, got ${e.seq}`;
+      break;
+    }
     if (chainHash(canonEntry(e), prev) !== e.entryHash || e.prevHash !== prev) {
       chainOk = false;
-      badSeq = e.seq;
+      chainDetail = `entry ${e.seq} hash ≠ recomputed`;
       break;
     }
     prev = e.entryHash;
@@ -49,7 +61,7 @@ export async function verify(
       : 'n/a';
 
   const checks = {
-    chain: { ok: chainOk, detail: chainOk ? undefined : `entry ${badSeq} hash ≠ recomputed` },
+    chain: { ok: chainOk, detail: chainDetail },
     root: { ok: rootOk },
     signature: { ok: sigOk },
     anchor: { ok: anchorOk },

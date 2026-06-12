@@ -122,8 +122,8 @@ export class PangolinOrchestrator {
     };
     this.store.saveRun(nsRun, actor, submittedAt);
     this.store.markReady(trigger.initialReady(nsRun));
-    // Audit is best-effort — a failing append must NOT abort submitRun.
-    try { this.auditLog?.append({ kind: 'run.submitted', runId: run.id, actor, at: new Date().toISOString() }); } catch { /* best-effort */ }
+    // Audit is best-effort — a failing append must NOT abort submitRun (drops are counted by tryAppend).
+    this.auditLog?.tryAppend({ kind: 'run.submitted', runId: run.id, actor, at: new Date().toISOString() });
     return run.id;
   }
 
@@ -153,14 +153,12 @@ export class PangolinOrchestrator {
     if (errors.length) throw new Error(`extendRun: run '${runId}' failed validation:\n${errors.join('\n')}`);
     // 3. namespace + save via the existing saveRun (plain transactional INSERT; items.id PK backstops all-or-nothing)
     this.store.saveRun({ id: runId, queue, items: this.nsWorkItems(runId, normalized) }, actor, new Date().toISOString());
-    // 4. audit — best-effort, names the cause item
-    try {
-      this.auditLog?.append({
-        kind: 'run.extended', runId,
-        ...(causeItemId ? { itemId: causeItemId } : {}),
-        actor, at: new Date().toISOString(),
-      });
-    } catch { /* best-effort */ }
+    // 4. audit — best-effort, names the cause item (drops are counted by tryAppend)
+    this.auditLog?.tryAppend({
+      kind: 'run.extended', runId,
+      ...(causeItemId ? { itemId: causeItemId } : {}),
+      actor, at: new Date().toISOString(),
+    });
     return normalized.map((it) => it.id);
   }
 
@@ -248,8 +246,8 @@ export class PangolinOrchestrator {
           // All items for this run (across all queues — a run may span queues in theory, but in practice it's one queue).
           const runItems = allItems.filter((i) => i.runId === runId);
           if (runItems.length > 0 && runItems.every((i) => TERMINAL_STATUSES.has(i.status))) {
-            try { this.auditLog.append({ kind: 'run.completed', runId, at }); } catch { /* best-effort */ }
-            try { await this.auditLog.sealEpoch(runId); } catch { /* best-effort */ }
+            this.auditLog.tryAppend({ kind: 'run.completed', runId, at });
+            try { await this.auditLog.sealEpoch(runId); } catch { /* best-effort: seal failure surfaces as anchor-missing at verify */ }
           }
         }
       } catch { /* outer guard: seal block must never throw out of tick() */ }
@@ -279,7 +277,7 @@ export class PangolinOrchestrator {
         this.store.setStatus(it.id, 'cancelled', 'operator cancelled');
       }
     }
-    try { this.auditLog?.append({ kind: 'run.cancelled', runId, actor, at: new Date().toISOString() }); } catch { /* best-effort */ }
+    this.auditLog?.tryAppend({ kind: 'run.cancelled', runId, actor, at: new Date().toISOString() });
   }
 
   /** Cancel a single item within a run (logical id). Same per-item logic + audit. */
@@ -290,7 +288,7 @@ export class PangolinOrchestrator {
     this.store.releaseLocks(it.id);
     this.store.setStatus(it.id, 'cancelled', 'operator cancelled');
     // include itemId so the entry is self-describing for a single-item cancel (kind stays 'run.cancelled' — 'item.cancelled' is not in the AuditEntryKind union)
-    try { this.auditLog?.append({ kind: 'run.cancelled', runId, itemId, actor, at: new Date().toISOString() }); } catch { /* best-effort */ }
+    this.auditLog?.tryAppend({ kind: 'run.cancelled', runId, itemId, actor, at: new Date().toISOString() });
   }
 
   getStatus(runId?: string): StatusItem[] {

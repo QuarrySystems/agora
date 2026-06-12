@@ -22,6 +22,9 @@ import type {
 } from "@quarry-systems/pangolin-core";
 
 const REF_SCHEME = "local-secret://";
+/** ids are minted by randomUUID(); accept only that shape so a ref can never carry
+ *  path separators or `..` into a filesystem join. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface LocalSecretStoreOpts {
   /** Private scratch directory holding per-secret files + sidecar metadata. */
@@ -97,7 +100,14 @@ export class LocalSecretStore implements SecretStore {
     if (!ref.startsWith(REF_SCHEME)) {
       throw new Error(`LocalSecretStore: not a local-secret ref: ${ref}`);
     }
-    return ref.slice(REF_SCHEME.length);
+    const id = ref.slice(REF_SCHEME.length);
+    // Reject anything but a minted UUID BEFORE it is joined into a path — a `../`
+    // payload would otherwise read/write `.secret` files outside `dir`. Defense-in-
+    // depth: refs are internally generated, but this store holds plaintext on disk.
+    if (!UUID_RE.test(id)) {
+      throw new Error(`LocalSecretStore: invalid secret id in ref: ${ref}`);
+    }
+    return id;
   }
 
   private valuePath(id: string): string {

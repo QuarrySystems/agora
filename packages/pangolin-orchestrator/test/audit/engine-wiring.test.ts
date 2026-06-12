@@ -6,7 +6,7 @@ import { ManualTrigger } from '../../src/triggers/manual.js';
 import { AuditLog } from '../../src/audit/audit-log.js';
 import { NoneSigner } from '../../src/audit/signer.js';
 import { LocalAnchor } from '../../src/audit/anchor.js';
-import type { Executor } from '../../src/contracts/index.js';
+import type { Executor, AuditStore } from '../../src/contracts/index.js';
 
 function fakeExec(): Executor & { fired: boolean } {
   let fired = false;
@@ -46,12 +46,18 @@ function alwaysFailExec(): Executor {
   };
 }
 
-/** AuditLog-shaped object whose append always throws. */
-function throwingAuditLog() {
-  return {
-    append(_entry: unknown): void { throw new Error('audit append exploded!'); },
-    async sealEpoch(_runId: string): Promise<never> { throw new Error('audit seal exploded!'); },
+/** A REAL AuditLog over a store whose append throws — the production failure mode
+ *  (a down/locked DB), which AuditLog.tryAppend must swallow-and-count rather than
+ *  propagate. Stronger than a hand-rolled throwing fake: it exercises the actual seam. */
+function throwingAuditLog(): AuditLog {
+  const failingStore: AuditStore = {
+    getAuditEntries: () => [],
+    getAuditChainHead: () => '',
+    appendAuditEntry: () => { throw new Error('audit append exploded!'); },
+    putAuditRoot: () => {},
+    getAuditRoot: () => undefined,
   };
+  return new AuditLog({ store: failingStore, signer: NoneSigner, anchor: new LocalAnchor(failingStore) });
 }
 
 describe('engine-wiring audit integration', () => {
@@ -205,13 +211,16 @@ describe('engine-wiring audit integration', () => {
     store.markReady(trigger.initialReady(run));
     const executors = { x: exec };
 
-    // Tick 1: fire — audit.append(item.fired) throws; item must still reach 'running'
-    await tick(store, executors, 'default', undefined, { auditLog: throwLog as unknown as AuditLog });
+    // Tick 1: fire — audit append(item.fired) throws inside the store; item must still reach 'running'
+    await tick(store, executors, 'default', undefined, { auditLog: throwLog });
     expect(store.getItems('r5')[0]?.status).toBe('running');
 
-    // Tick 2: reconcile — audit.append(item.reconciled) throws; item must reach 'done'
-    await tick(store, executors, 'default', undefined, { auditLog: throwLog as unknown as AuditLog });
+    // Tick 2: reconcile — audit append(item.reconciled) throws; item must reach 'done'
+    await tick(store, executors, 'default', undefined, { auditLog: throwLog });
     expect(store.getItems('r5')[0]?.status).toBe('done');
+
+    // The drops were NOT silent: tryAppend counted every swallowed append (completeness signal).
+    expect(throwLog.droppedAppends).toBeGreaterThan(0);
   });
 
   it('constructor throws a clear error when auditLog is provided but store does not implement AuditStore', () => {
