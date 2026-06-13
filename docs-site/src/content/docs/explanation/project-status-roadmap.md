@@ -120,18 +120,26 @@ now built:
   auditor run `npx @quarry-systems/pangolin-verify <bundle.json>` without the engine.
   Repo-root `VERIFICATION.md` is the auditor reimplementation spec.
 
+### Cleared (2026-06-13): the external-immutable tamper-evident tier is proven
+
+The tamper-evident leave-gate ran end-to-end against a **real S3 Object Lock
+(COMPLIANCE) bucket** via the shipping `AwsS3LockClient` + `S3ObjectLockAnchor`: a clean
+run earns **`tamper-evident`**, and a chain-consistent forge — even when the attacker
+re-anchors a forged root as a new object version — is caught as **`root-mismatch`** (the
+claim collapses to `tamper-detecting`). Clearing it **found and fixed a real bug**: the
+anchor read the *latest* object version, which an attacker with bucket write access can
+forge by adding a new version (Object Lock keeps the original undeletable but does not
+block new versions); the anchor now **version-pins to the immutable original version**.
+Locked in by a CI contrast test and a `PANGOLIN_S3_ENDPOINT`-gated MinIO round-trip.
+
 ### Known gap in V1
 
-The **tamper-evident-against-real-WORM proof is still pending.** Trusted *time* is
-built (above), but the external-immutable tier **proven end-to-end against a real S3
-Object Lock bucket** is not. Every production component exists in code
-(`FargateProvider`, `S3StorageProvider`, `AwsCredentialProvider`, and
-`S3ObjectLockAnchor` for the external-immutable audit tier), but the maintainers have
-not run the full Fargate+S3 path end-to-end. This is the heaviest leave-gate: no
-concrete `S3LockClient` adapter ships (the interface is provided; you implement it).
-Treat [Deploy to Fargate + S3](/pangolin/how-to/deploy-fargate-s3/) as a first-run
-guide, not a tested recipe. Seal-compliance items **#2–#5** (authz-in-evidence,
-retention policy, access-logging, KMS key custody) also remain unbuilt.
+The **full Fargate + S3 production deploy is still operator-deferred.** Every component
+exists in code (`FargateProvider`, `S3StorageProvider`, `AwsCredentialProvider`), but the
+maintainers have not run the complete Fargate+S3 deploy path end-to-end. Treat
+[Deploy to Fargate + S3](/pangolin/how-to/deploy-fargate-s3/) as a first-run guide, not a
+tested recipe. Seal-compliance items **#2–#5** (authz-in-evidence, retention policy,
+access-logging, KMS key custody) also remain unbuilt.
 
 ## Next — V1.1 (additive, no refactor)
 
