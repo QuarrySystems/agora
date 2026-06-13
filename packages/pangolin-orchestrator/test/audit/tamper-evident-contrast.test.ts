@@ -19,15 +19,16 @@ function memStore(entries: AuditEntryRow[]) {
 }
 
 // STRICT immutable S3 fake — simulates COMPLIANCE: overwriting an existing key is rejected.
-// (NOT the permissive fakeS3() in anchor.test.ts, which silently allows overwrites.)
-function immutableFakeS3(): S3LockClient {
-  const m = new Map<string, Uint8Array>();
+// Versioned fake modeling REAL S3 object-lock semantics: putObject ALWAYS succeeds (each PUT
+// is a new version — Object Lock never rejects a new version), and getObject returns the
+// EARLIEST (original) version, mirroring the fixed AwsS3LockClient. This is the property that
+// makes the anchor tamper-evident: an attacker can append a forged newer version, but the
+// lock-protected original (read by the anchor) cannot be superseded.
+function versionedFakeS3(): S3LockClient {
+  const m = new Map<string, Uint8Array[]>();
   return {
-    async putObject(key, body) {
-      if (m.has(key)) throw new Error('COMPLIANCE: object is locked; overwrite rejected');
-      m.set(key, body);
-    },
-    async getObject(key) { return m.get(key); },
+    async putObject(key, body) { const v = m.get(key) ?? []; v.push(body); m.set(key, v); },
+    async getObject(key) { return m.get(key)?.[0]; },
   };
 }
 
@@ -73,12 +74,14 @@ it('chain-consistent forge: LocalAnchor (mutable) is fooled -> intact:true', asy
 it('chain-consistent forge: S3ObjectLockAnchor (immutable) catches it -> root-mismatch', async () => {
   const { rows, root } = buildRun('r');
   const store = memStore(rows);
-  const anchor = new S3ObjectLockAnchor(immutableFakeS3(), 'bucket');
-  await anchor.anchor({ epochId: 'r', root });             // seal original root (immutable)
+  const anchor = new S3ObjectLockAnchor(versionedFakeS3(), 'bucket');
+  await anchor.anchor({ epochId: 'r', root });             // seal original root (version 1, locked)
 
   const forgedRoot = forgeInPlace(store.entries);
-  // attacker tries to re-anchor the forged root — COMPLIANCE rejects the overwrite
-  await expect(anchor.anchor({ epochId: 'r', root: forgedRoot })).rejects.toThrow(/COMPLIANCE/);
+  // Attacker re-anchors the forged root. S3 versioning ACCEPTS it as a new (latest) version —
+  // Object Lock never rejects a new version — but the anchor reads the EARLIEST (locked
+  // original) version, so the forgery is ignored at fetch time.
+  await anchor.anchor({ epochId: 'r', root: forgedRoot });
 
   const report = await verify('r', { store, anchor });
   expect(report.checks.chain.ok).toBe(true);               // chain still consistent...

@@ -68,14 +68,17 @@ d('real S3 Object Lock (tamper-evident readiness)', () => {
       prev = entryHash;
     }
 
-    // 3. Attacker tries to overwrite the anchored root in S3 -> COMPLIANCE rejects it (immutable).
+    // 3. Attacker re-anchors the forged root. S3 Object Lock does NOT reject a new version —
+    //    this PUT SUCCEEDS and becomes the LATEST version. The locked original survives as an
+    //    older version, and the anchor reads the EARLIEST (locked) version, so the forgery is
+    //    ignored at fetch time. (A latest-version read here would be defeated — that was the bug.)
     const forgedRoot = merkleRoot(leavesFromEntryHashes(store.getAuditEntries(runId).map((e) => e.entryHash)));
-    await expect(anchor.anchor({ epochId: runId, root: forgedRoot })).rejects.toThrow();
+    await anchor.anchor({ epochId: runId, root: forgedRoot });
 
-    // 4. Re-verify -> fetches the immutable anchored root from S3, finds the mismatch.
+    // 4. Re-verify -> fetches the IMMUTABLE original anchored root from S3, finds the mismatch.
     const tampered = await verify(runId, { store, anchor });
     expect(tampered.checks.chain.ok).toBe(true);   // chain stayed consistent (relinked)
-    expect(tampered.failure).toBe('root-mismatch'); // caught by the external immutable anchor
+    expect(tampered.failure).toBe('root-mismatch'); // caught: recomputed forged root != locked original
     expect(tampered.intact).toBe(false);
     expect(tampered.claim).toBe('tamper-detecting');
   });
