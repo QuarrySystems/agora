@@ -18,5 +18,8 @@ export interface MailboxS3Client {
 /** Minimal injected S3 seam for the object-lock anchor. */
 export interface S3LockClient {
   putObject(key: string, body: Uint8Array, opts: { retainUntil: Date; mode: 'COMPLIANCE' }): Promise<void>;
+  /** Returns the ORIGINAL (earliest) version of `key`, never the latest. Object Lock keeps the
+   *  original undeletable, but an attacker with write access can add a newer version; reading the
+   *  earliest (server-ordered, lock-protected) version is what makes the anchored root immutable. */
   getObject(key: string): Promise<Uint8Array | undefined>;
 }
