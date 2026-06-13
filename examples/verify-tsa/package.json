@@ -1,0 +1,22 @@
+{
+  "name": "verify-tsa-example",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Capstone proof: seal a run with an offline local-CA RFC 3161 timestamp, then re-verify it as tsa-attested with ONLY @quarry-systems/pangolin-verify. Two-command demo (produce → verify) + CI proof test.",
+  "type": "module",
+  "license": "BUSL-1.1",
+  "scripts": {
+    "produce": "node src/produce.mjs",
+    "verify": "node src/verify.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --strict test/proof.test.ts"
+  },
+  "dependencies": {
+    "@quarry-systems/pangolin-orchestrator": "workspace:*",
+    "@quarry-systems/pangolin-verify": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
+  }
+}

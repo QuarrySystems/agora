@@ -382,6 +382,22 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  examples/verify-tsa:
+    dependencies:
+      '@quarry-systems/pangolin-orchestrator':
+        specifier: workspace:*
+        version: link:../../packages/pangolin-orchestrator
+      '@quarry-systems/pangolin-verify':
+        specifier: workspace:*
+        version: link:../../packages/pangolin-verify
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@25.9.1)
+
   packages/pangolin-cli:
     dependencies:
       '@quarry-systems/pangolin-client':

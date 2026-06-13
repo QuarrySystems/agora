@@ -32,3 +32,9 @@ export type {
 
 export { renderVerification } from './render.js';
 export type { RenderOpts } from './render.js';
+
+// Re-export core's verifyBundle (+ its report type) so an auditor reaches a full
+// verification — bundle in, VerificationReport out — from this single package, never
+// needing the sealer/orchestrator package. See examples/verify-tsa.
+export { verifyBundle } from '@quarry-systems/pangolin-core';
+export type { VerificationReport, AuditBundle } from '@quarry-systems/pangolin-core';
