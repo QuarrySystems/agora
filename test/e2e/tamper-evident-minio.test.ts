@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
-// `@aws-sdk/client-s3` is not a root dependency (pnpm strict, no hoist); the
-// storage-s3 package re-exports the SDK primitives so this root e2e suite can
-// drive a raw S3 client without declaring the SDK at the root.
-import { S3Client, CreateBucketCommand, AwsS3LockClient } from '../../packages/pangolin-storage-s3/src/index.js';
+// `@aws-sdk/client-s3` is not a root dependency (pnpm strict, no hoist). Import the raw
+// SDK primitives through storage-s3's own node_modules (it declares the dep) — the same
+// pattern test/e2e/mcp-tool-surface.test.ts uses for the MCP SDK. This keeps the SDK OUT
+// of storage-s3's public API (the package's job is to encapsulate it, not re-export it).
+import { S3Client, CreateBucketCommand } from '../../packages/pangolin-storage-s3/node_modules/@aws-sdk/client-s3';
+import { AwsS3LockClient } from '../../packages/pangolin-storage-s3/src/index.js';
 import { PangolinOrchestrator } from '../../packages/pangolin-orchestrator/src/orchestrator.js';
 import { SqliteRunStateStore } from '../../packages/pangolin-orchestrator/src/runstate/sqlite.js';
 import { ManualTrigger } from '../../packages/pangolin-orchestrator/src/triggers/manual.js';
