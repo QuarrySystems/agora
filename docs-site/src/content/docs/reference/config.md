@@ -128,7 +128,16 @@ const store = new SqliteRunStateStore(dbPath);
 process.on('exit', () => { try { store.close(); } catch {} });
 const signer = createLocalSigner();
 const anchor = new LocalAnchor(store);
-const auditLog = new AuditLog({ store, signer, anchor });
+const auditLog = new AuditLog({
+  store,
+  signer,
+  anchor,
+  // A dropped audit append means the sealed record is incomplete — surface it
+  // (completeness is a SOC2 / EU AI Act Art 12 control). `auditLog.droppedAppends`
+  // holds the running total.
+  onDrop: (entry, err) =>
+    console.error(`[pangolin] AUDIT DROP kind=${entry.kind} run=${entry.runId}:`, err),
+});
 
 const orchestrator = new PangolinOrchestrator({
   store,

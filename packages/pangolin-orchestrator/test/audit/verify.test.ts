@@ -168,6 +168,26 @@ it('tampered entry: chain check fails and names the seq; anchor still evaluated 
   expect(r.failure).toBe('chain');         // back-compat preserved
 });
 
+it('detects a re-linked chain with a seq gap (completeness / no-gaps invariant)', async () => {
+  // Forge an internally-consistent chain that SKIPS seq=1: linkage is valid and the
+  // anchored root matches the forged entries (worst case — attacker controlled a
+  // mutable 'detect' anchor). Only the seq-contiguity check can catch the deletion.
+  const store = new SqliteRunStateStore();
+  const mk = (e: any, prev: string) => {
+    const eh = chainHash(canonEntry({ ...e, runId: 'gap' }), prev);
+    store.appendAuditEntry({ ...e, runId: 'gap', entryHash: eh, prevHash: prev });
+    return eh;
+  };
+  const h0 = mk({ seq: 0, kind: 'run.submitted', at: 't0' }, '');
+  const h2 = mk({ seq: 2, kind: 'run.completed', at: 't2' }, h0); // seq jumps 0 -> 2
+  const forgedRoot = merkleRoot(leavesFromEntryHashes([h0, h2]));
+  const r = await verify('gap', { store, anchor: anchorOf(forgedRoot) });
+  expect(r.checks.chain.ok).toBe(false);
+  expect(r.checks.chain.detail).toMatch(/seq|contiguous|gap/i);
+  expect(r.intact).toBe(false);
+  expect(r.failure).toBe('chain');
+});
+
 it('no anchor: checks.root.ok === n/a, checks.signature.ok === n/a', async () => {
   const store = new SqliteRunStateStore();
   seed(store, 'r3');

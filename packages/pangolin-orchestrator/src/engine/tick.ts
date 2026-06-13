@@ -20,10 +20,11 @@ export async function tick(
   const backoff = opts.backoffMs ?? ((n) => 1000 * 2 ** n);
   const deNs = opts.denamespace ?? ((x) => x);
 
-  /** Audit is best-effort observability — a failing append must NEVER abort a tick or corrupt run state. */
+  /** Audit is best-effort observability — a failing append must NEVER abort a tick or corrupt run
+   *  state. tryAppend swallows the store error but COUNTS the drop (AuditLog.droppedAppends). */
   const auditAt = new Date(now).toISOString();
-  const audit = (e: Parameters<NonNullable<typeof opts.auditLog>['append']>[0]) => {
-    try { opts.auditLog?.append(e); } catch { /* best-effort; dropping an append is safe */ }
+  const audit = (e: Parameters<NonNullable<typeof opts.auditLog>['tryAppend']>[0]) => {
+    opts.auditLog?.tryAppend(e);
   };
 
   const queueItems = () => store.getItems().filter((i) => i.queue === queue);

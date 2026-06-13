@@ -22,6 +22,21 @@ import type {
 } from "@quarry-systems/pangolin-core";
 
 const REF_SCHEME = "local-secret://";
+/** A ref's id is joined into a filesystem path (`<dir>/<id>.secret`), so it must be a
+ *  single SAFE path segment. We validate path-safety (not id FORMAT — legitimate
+ *  non-UUID ids must still resolve): reject empty, `.`/`..`, any `..` substring, path
+ *  separators, and NUL. Mirrors LocalStorageProvider.assertSafeSegment. */
+function isUnsafeSegment(id: string): boolean {
+  return (
+    id.length === 0 ||
+    id === "." ||
+    id === ".." ||
+    id.includes("..") ||
+    id.includes("/") ||
+    id.includes("\\") ||
+    id.includes("\0")
+  );
+}
 
 export interface LocalSecretStoreOpts {
   /** Private scratch directory holding per-secret files + sidecar metadata. */
@@ -97,7 +112,14 @@ export class LocalSecretStore implements SecretStore {
     if (!ref.startsWith(REF_SCHEME)) {
       throw new Error(`LocalSecretStore: not a local-secret ref: ${ref}`);
     }
-    return ref.slice(REF_SCHEME.length);
+    const id = ref.slice(REF_SCHEME.length);
+    // Reject path-unsafe ids BEFORE the id is joined into a path — a `../` payload would
+    // otherwise read/write `.secret` files outside `dir`. Defense-in-depth: refs are
+    // internally generated, but this store holds plaintext on disk.
+    if (isUnsafeSegment(id)) {
+      throw new Error(`LocalSecretStore: invalid secret id in ref: ${ref}`);
+    }
+    return id;
   }
 
   private valuePath(id: string): string {
