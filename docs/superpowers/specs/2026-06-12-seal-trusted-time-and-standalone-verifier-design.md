@@ -54,8 +54,18 @@ cycle, PR #58). What moves:
   `AnchoredRoot`, `AnchorReceipt`, `Signature`, `Guarantee`/`GUARANTEE_RANK`,
   `VerificationReport`, `CheckResult`, `AuditBundle`, `DispatchManifest`, …)
 
-These are pure `node:crypto` + plain data; they have **no** sqlite/orchestrator runtime
-dependency, so the move is mechanical. The core gains the new `verifyTimestamp` (§4).
+The types land in a **new `packages/pangolin-core/src/audit.ts`** (a sibling of the
+existing `content-hash.ts` / `s3-clients.ts` seam files), re-exported from the core
+barrel; the verify logic lands beside it (e.g. `verify.ts` / `merkle.ts` / `canon.ts`
+under `pangolin-core/src/`). These are pure `node:crypto` + plain data with **no**
+sqlite/orchestrator runtime dependency, so the move is mechanical.
+
+**Core stays dependency-light.** Critically, core does **not** gain the RFC 3161
+ASN.1/CMS dependency — `pangolin-core` is the base every package imports, so a heavy CMS
+lib there would bloat the whole tree and contradict the "minimal verifier" goal. Core's
+`verify()` already **injects** `verifySignature` rather than owning ed25519; trusted-time
+follows the same idiom — `verify()` takes an optional injected `verifyTimestamp`
+callback, and the ASN.1-heavy implementation lives only where it is used (§4).
 
 After the move:
 
@@ -68,8 +78,15 @@ After the move:
 
 ### 3.2 New package: `@quarry-systems/pangolin-verify`
 
-A minimal, **zero-orchestrator-dependency** package. Depends only on `pangolin-core`.
+A minimal package depending on `pangolin-core` plus the single ASN.1/CMS lib needed for
+RFC 3161 token verification (§4.2) — **no** orchestrator/sqlite/Docker dependency. It
+follows the repo's leaf-package conventions (verified against `pangolin-secret-store` /
+`pangolin-storage-local`): `@quarry-systems/*` scope, `BUSL-1.1` license, `dist/`
+publish, scripts `build: tsc` / `lint: eslint src --ext .ts` / `test: vitest run` /
+`typecheck: tsc --noEmit`, and a `src/index.ts` barrel.
 
+- CLI entry: a `bin` field — `"bin": { "pangolin-verify": "./dist/cli.js" }` — backed by
+  `src/cli.ts` (commander, mirroring `pangolin-cli/src/cmd-verify.ts`).
 - Entry: `npx @quarry-systems/pangolin-verify <bundle.json> [--anchor <verify-context.json>] [--json] [--full]`
 - It loads a self-contained `AuditBundle` JSON and an optional read-only
   **verify-context** (signer public key + a read-only anchor source: an inline
@@ -83,7 +100,11 @@ exactly one implementation path.
 
 ## 4. The `TimestampAuthority` seam (#1)
 
-A new seam mirroring `AuditAnchor`/`Signer`, living in `pangolin-core` contracts.
+A new seam mirroring `AuditAnchor`/`Signer`. **Split by dependency weight:** the *type* and
+the *interface* (zero deps) live in `pangolin-core/src/audit.ts`; the ASN.1/CMS-heavy
+*token verification* and the concrete impls live where the dep belongs (§4.2).
+
+In `pangolin-core` (no new deps):
 
 ```ts
 export interface TimestampToken {
@@ -100,15 +121,23 @@ export interface TimestampAuthority {
   /** Obtain a token binding a hash of `rootHash` to a trusted time. */
   timestamp(rootHash: Uint8Array): Promise<TimestampToken>;
 }
-
-/** Pure, offline check: the token's messageImprint matches `rootHash` AND the token's
- *  signature validates against one of `trustedCerts` (the TSA's CA chain). */
-export function verifyTimestamp(
-  rootHash: Uint8Array,
-  token: TimestampToken,
-  trustedCerts: Uint8Array[],
-): boolean;
 ```
+
+`verify()` (in core) gains an **injected** timestamp check — exactly the idiom it already
+uses for signatures (`verifySignature?`), so core never imports an ASN.1 lib:
+
+```ts
+verify(runId, {
+  store, anchor,
+  verifySignature?: (root, sig) => boolean,
+  verifyTimestamp?: (root: Uint8Array, token: TimestampToken) => boolean,  // NEW, optional
+})
+```
+
+The concrete check (parses the CMS SignedData, confirms the token's `messageImprint`
+matches `root`, validates the TSA signature against trusted certs) is implemented in
+`pangolin-verify` and passed in by the CLI / verify-context. When `verifyTimestamp` is
+absent or no token is present, the time check is `n/a` and `timeTier = 'asserted'`.
 
 ### 4.1 Honest tiers
 
@@ -127,6 +156,15 @@ renders `asserted` time as `tsa-attested`.
 
 ### 4.2 Implementations
 
+The concrete impls + the CMS token verification live in `pangolin-verify` (and the
+opt-in timestamper is constructed by the operator's config), so the **single ASN.1/CMS
+dependency is scoped there, never in `pangolin-core`**. Library choice: a pure-JS,
+maintained, MIT/Apache ASN.1+CMS toolkit with no native bindings (candidate:
+`@peculiar/asn1-*` / `pkijs`); pinned, and used for both token *creation* (the impls
+below) and *verification* (`verifyTimestamp`) so the two cannot diverge. The exact
+library is ratified in the first plan task via a thin spike (round-trip a token through a
+real public TSA + the local-CA fake) before the seam hardens.
+
 - **`NoTimestampAuthority`** (default / floor): `sealEpoch` attaches no token; the seal
   documents the NTP floor. `timeTier = 'asserted'`. Keeps the no-egress posture intact.
 - **`Rfc3161TimestampAuthority`** (opt-in): HTTP TSA client to a configurable URL
@@ -140,12 +178,16 @@ renders `asserted` time as `tsa-attested`.
 
 ### 4.3 Write-path wiring
 
-`AuditLog.sealEpoch` (orchestrator) gains an optional `timestamper?: TimestampAuthority`
-dep. After computing the Merkle `root` and signing it, it calls
-`timestamper.timestamp(root)` and stores the returned token on the `AnchoredRoot`
-(§6). A `timestamp()` failure is **best-effort and counted** — same posture as audit
-appends (PR #65): a TSA outage downgrades the seal to `asserted`, it does not abort the
-run. (Reuses the `droppedAppends`-style signal; the seal records *why* it is `asserted`.)
+`AuditLog` (orchestrator) gains an optional `timestamper?: TimestampAuthority` in its
+constructor deps (alongside `store`/`signer`/`anchor`). In `sealEpoch`, after computing
+the Merkle `root` and signing it, it calls `timestamper.timestamp(root)` and stores the
+returned token on the `AnchoredRoot` (§6). A `timestamp()` failure is **best-effort** — a
+TSA outage downgrades the seal to `asserted` (no token written), it does not abort the
+run, consistent with the best-effort audit posture (PR #65). **Degradation is
+self-evidencing, not a separate counter:** token *absence* on the `AnchoredRoot` IS the
+signal, and `timeTier = 'asserted'` reports it at verify — so no `droppedTimestamps`
+field is needed. The operator's `onDrop`-style stderr surfacing (PR #65) is the place to
+also log a TSA failure if the config wires the timestamper.
 
 ## 5. Standalone verifier: two honest modes (#6)
 
@@ -160,6 +202,13 @@ only in whether the anchored root is re-fetched from the immutable source:
 - **Anchor-checked (online).** Additionally fetch the root from the real WORM anchor (via
   a read-only anchor in the verify-context) and `Buffer.compare` it to the recomputed
   root. **This is the check that licenses `tamper-evident`.**
+
+The two modes are **parametrized by which anchor is passed**, not a flag or a forked code
+path — `verify()` is unchanged in shape. Offline = a tiny read-only anchor that returns
+the bundle's own embedded `auditLog.root` (so the recompute-vs-anchor compare is against
+the embedded root, capping the claim at `tamper-detecting`). Anchor-checked = a read-only
+anchor backed by the real WORM source (e.g. an S3-object-lock fetch). Both satisfy the
+existing `AuditAnchor` interface, so no new verify branch is introduced (SoC preserved).
 
 `VERIFICATION.md` (committed at repo root or `docs/`) documents: the `AuditBundle` and
 verify-context formats; the exact step-by-step algorithm; the trust model and claim
@@ -187,8 +236,8 @@ not the vendor" promise made concrete.
   `verifyTimestamp` accepts it; `timeTier = 'tsa-attested'`.
 - **Timestamp tamper:** a token whose messageImprint ≠ root, or signed by an untrusted
   cert, fails `time.ok` and the tier stays/falls to `asserted` honestly.
-- **TSA outage:** a throwing `timestamp()` downgrades the seal to `asserted` and is
-  counted; the run still seals and verifies on the tamper axis.
+- **TSA outage:** a throwing `timestamp()` downgrades the seal to `asserted` (no token
+  written — absence is self-evidencing); the run still seals and verifies on the tamper axis.
 - **Mode separation:** offline mode caps the claim at `tamper-detecting` even on a clean
   external-immutable bundle; anchor-checked mode reaches `tamper-evident`.
 - **Dependency-graph test:** `@quarry-systems/pangolin-verify` resolves and verifies a
@@ -200,20 +249,28 @@ not the vendor" promise made concrete.
 
 ## 8. Sequencing within the build
 
-1. Extract the pure core to `pangolin-core`; re-point orchestrator imports; keep the full
-   existing audit suite green (no behavior change). *This is the load-bearing refactor.*
-2. Add the `TimestampAuthority` seam + the three impls + `verifyTimestamp` + the additive
-   data-model fields; wire `sealEpoch`; extend `verify`/the report.
-3. Stand up `@quarry-systems/pangolin-verify` over the core; re-point `pangolin verify`;
-   write `VERIFICATION.md`.
+0. **ASN.1/CMS library spike** — ratify the toolkit (§4.2) with a thin round-trip test (a
+   token from a real public TSA *and* from the local-CA fake, both verified). Cheap,
+   de-risks everything downstream, gates the seam's shape. Pins the dep in `pangolin-verify`.
+1. Extract the pure core to `pangolin-core` (new `src/audit.ts` for types; verify/merkle/
+   canon beside it); re-point orchestrator imports; keep the full existing audit suite
+   green (no behavior change). *This is the load-bearing refactor; core gains no new deps.*
+2. Add the `TimestampAuthority` type+interface to core and the optional injected
+   `verifyTimestamp` param on `verify()` + the additive data-model fields; wire the
+   optional `timestamper` into `AuditLog.sealEpoch`; extend the report (`time`, `timeTier`).
+3. Stand up `@quarry-systems/pangolin-verify` (the impls, `verifyTimestamp`, the CLI `bin`)
+   over the core; re-point `pangolin verify`; **write `VERIFICATION.md` first** so it drives
+   the bundle/verify-context format rather than documenting it after the fact.
 4. Offline demo proof: a bundle showing `tsa-attested` time via the local-CA fake, and an
    auditor re-verifying it with only the `pangolin-verify` package.
 
 ## 9. Risks & mitigations
 
-- **RFC 3161 implementation surface.** Parsing/validating CMS SignedData is fiddly. Use a
-  vetted library for ASN.1/CMS rather than hand-rolling; keep `verifyTimestamp` small and
-  test it against tokens from both the local-CA fake and at least one real public TSA.
+- **RFC 3161 implementation surface.** Parsing/validating CMS SignedData is fiddly.
+  *Resolved by design:* the ASN.1/CMS dependency is scoped to `pangolin-verify` (never
+  `pangolin-core` — §3.1/§4.2), and the step-0 spike ratifies the library against a real
+  TSA + the local-CA fake before the seam hardens. `verifyTimestamp` stays small and is
+  injected into core's `verify()` exactly as `verifySignature` already is.
 - **Extraction churn breaking importers.** Mitigated by re-export shims and running the
   full audit suite at step 1 before any feature work.
 - **Trust-root distribution.** The auditor needs the TSA's CA cert to verify offline;
