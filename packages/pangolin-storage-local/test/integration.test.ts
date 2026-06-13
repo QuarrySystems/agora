@@ -26,18 +26,30 @@ describe('LocalStorageProvider', () => {
   it('idempotent put: re-registering identical content returns same hash, no dup index entry', async () => {
     const sp = new LocalStorageProvider({ rootDir });
     const payload = new TextEncoder().encode('content-A');
-    const { contentHash: h1 } = await sp.put(
-      'pangolin://test/capability/x',
-      payload,
-    );
-    const { contentHash: h2 } = await sp.put(
-      'pangolin://test/capability/x',
-      payload,
-    );
+    const { contentHash: h1 } = await sp.put('pangolin://test/capability/x', payload);
+    const { contentHash: h2 } = await sp.put('pangolin://test/capability/x', payload);
     expect(h1).toBe(h2);
     const list = await sp.list('pangolin://test/capability/x');
     expect(list).toHaveLength(1);
     expect(list[0]!.contentHash).toBe(h1);
+  });
+
+  it('rejects path-traversal segments before joining into a filesystem path', async () => {
+    // The upstream URI parser accepts "." / ".." as segments; assertSafeSegment must
+    // reject them so a caller can never escape rootDir when the segments are joined.
+    // get()/put() parse-and-guard before touching the filesystem, so existence is moot.
+    const sp = new LocalStorageProvider({ rootDir });
+    await expect(sp.get('pangolin://test/capability/..')).rejects.toThrow(/unsafe.*segment/i);
+    await expect(sp.get('pangolin://test/../capability')).rejects.toThrow(/unsafe.*segment/i);
+    await expect(
+      sp.put('pangolin://test/capability/..', new TextEncoder().encode('x')),
+    ).rejects.toThrow(/unsafe.*segment/i);
+    // A well-formed sibling URI passes the traversal guard and fails LATER for a benign
+    // reason (get requires a pinned contentHash) — proving the guard is segment-specific,
+    // not a blanket reject.
+    await expect(sp.get('pangolin://test/capability/safe-name')).rejects.toThrow(
+      /pinned URI|contentHash/i,
+    );
   });
 
   it('changed content creates a new index entry; resolveLatest returns the newest', async () => {
@@ -74,13 +86,7 @@ describe('LocalStorageProvider', () => {
     // The on-disk filename uses an underscore separator (sha256_<hex>.blob)
     // because ":" is not a legal filename character on Windows.
     const safeHash = contentHash.replace(':', '_');
-    const blobPath = join(
-      rootDir,
-      'test',
-      'capability',
-      'z',
-      `${safeHash}.blob`,
-    );
+    const blobPath = join(rootDir, 'test', 'capability', 'z', `${safeHash}.blob`);
 
     // Sanity-check the path: reading the original payload should still match.
     const original = await readFile(blobPath);
@@ -98,20 +104,11 @@ describe('LocalStorageProvider', () => {
     const sp = new LocalStorageProvider({ rootDir });
     const uri = 'pangolin://test/capability/w';
 
-    const { contentHash: hA } = await sp.put(
-      uri,
-      new TextEncoder().encode('alpha'),
-    );
+    const { contentHash: hA } = await sp.put(uri, new TextEncoder().encode('alpha'));
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const { contentHash: hB } = await sp.put(
-      uri,
-      new TextEncoder().encode('bravo'),
-    );
+    const { contentHash: hB } = await sp.put(uri, new TextEncoder().encode('bravo'));
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const { contentHash: hC } = await sp.put(
-      uri,
-      new TextEncoder().encode('charlie'),
-    );
+    const { contentHash: hC } = await sp.put(uri, new TextEncoder().encode('charlie'));
 
     const list = await sp.list(uri);
     expect(list).toHaveLength(3);
@@ -120,17 +117,13 @@ describe('LocalStorageProvider', () => {
 
     // And the registeredAt timestamps are monotonically non-increasing.
     for (let i = 1; i < list.length; i++) {
-      expect(
-        list[i - 1]!.registeredAt >= list[i]!.registeredAt,
-      ).toBe(true);
+      expect(list[i - 1]!.registeredAt >= list[i]!.registeredAt).toBe(true);
     }
   });
 
   it('resolveLatest returns null for unknown name', async () => {
     const sp = new LocalStorageProvider({ rootDir });
-    const latest = await sp.resolveLatest(
-      'pangolin://test/capability/never-registered',
-    );
+    const latest = await sp.resolveLatest('pangolin://test/capability/never-registered');
     expect(latest).toBeNull();
   });
 
@@ -146,8 +139,7 @@ describe('LocalStorageProvider', () => {
       const hit = await sp.resolveByHash({
         namespace: 'test',
         type: 'capability',
-        contentHash:
-          'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+        contentHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
       });
       expect(hit).toBeNull();
     });
@@ -212,15 +204,11 @@ describe('LocalStorageProvider', () => {
 
     it('returns null for a hash that does not match any registered entry', async () => {
       const sp = new LocalStorageProvider({ rootDir });
-      await sp.put(
-        'pangolin://test/capability/alpha',
-        new TextEncoder().encode('alpha-bytes'),
-      );
+      await sp.put('pangolin://test/capability/alpha', new TextEncoder().encode('alpha-bytes'));
       const hit = await sp.resolveByHash({
         namespace: 'test',
         type: 'capability',
-        contentHash:
-          'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+        contentHash: 'sha256:1111111111111111111111111111111111111111111111111111111111111111',
       });
       expect(hit).toBeNull();
     });

@@ -235,7 +235,19 @@ function createOrchestrator() {
   const store = new SqliteRunStateStore(
     process.env.PANGOLIN_DB_PATH ?? join(tmpdir(), 'pangolin-serve-stack.db'),
   );
-  const auditLog = new AuditLog({ store, signer, anchor });
+  const auditLog = new AuditLog({
+    store,
+    signer,
+    anchor,
+    // A dropped audit append means the sealed record is INCOMPLETE — completeness is
+    // a SOC2 CC7 / EU AI Act Art 12 control, so it must never be silent. Surface every
+    // drop on the always-on serve path (the running total is on auditLog.droppedAppends).
+    onDrop: (entry, err) =>
+      console.error(
+        `[config] AUDIT DROP — sealed record incomplete (kind=${entry.kind} run=${entry.runId}):`,
+        err,
+      ),
+  });
   return new PangolinOrchestrator({
     store,
     executors: makeExecutors(),
