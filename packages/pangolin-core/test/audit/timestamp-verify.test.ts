@@ -26,6 +26,12 @@ it('no token present -> time check n/a, timeTier asserted', async () => {
   expect(r.checks.time.ok).toBe('n/a');
   expect(r.timeTier).toBe('asserted');
 });
+it('verifyTimestamp supplied but no token present -> time n/a, timeTier asserted (verifier not consulted)', async () => {
+  const { store, root } = oneEntryStore('r');
+  const r = await verify('r', { store, anchor: anchorWith(root), verifyTimestamp: () => true });
+  expect(r.checks.time.ok).toBe('n/a');
+  expect(r.timeTier).toBe('asserted');
+});
 it('valid token + verifyTimestamp true -> time ok, timeTier tsa-attested', async () => {
   const { store, root } = oneEntryStore('r');
   const token: TimestampToken = { alg: 'rfc3161', token: new Uint8Array([1]), at: '2026-01-01T00:00:00Z' };

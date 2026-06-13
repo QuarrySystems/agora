@@ -117,21 +117,22 @@ it('sealEpoch stores a trusted-time token when a timestamper is configured', asy
   expect(store.getAuditRoot('r')!.timestamp).toEqual(token);
 });
 
-it('sealEpoch survives a throwing timestamper: seal succeeds, timestamp undefined, drop surfaced', async () => {
+it('sealEpoch survives a throwing timestamper: seal succeeds, timestamp undefined, TSA failure surfaced honestly (not a phantom drop)', async () => {
   const store = new SqliteRunStateStore();
-  const dropped: string[] = [];
+  const tsaErrors: Error[] = [];
   const timestamper: TimestampAuthority = {
     id: 'tsa-down',
     async timestamp() { throw new Error('TSA unreachable'); },
   };
   const log = new AuditLog({
     store, signer: fakeSigner, anchor: fakeAnchor(), timestamper,
-    onDrop: (entry: Omit<AuditEntry, 'seq'>) => dropped.push(entry.kind),
+    onTimestampFailure: (err: Error) => tsaErrors.push(err),
   });
   log.append({ runId: 'r', kind: 'run.submitted', at: 't0' });
   const receipt = await log.sealEpoch('r'); // does NOT throw
   expect(receipt.epochId).toBe('r');
   expect(store.getAuditRoot('r')).toBeDefined();        // seal still durable
   expect(store.getAuditRoot('r')!.timestamp).toBeUndefined();
-  expect(dropped).toContain('run.completed');           // TSA failure surfaced via onDrop
+  expect(tsaErrors.length).toBe(1);                     // TSA outage surfaced via onTimestampFailure
+  expect(tsaErrors[0]!.message).toBe('TSA unreachable');
 });
