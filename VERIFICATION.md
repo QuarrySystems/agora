@@ -170,10 +170,29 @@ Given a `bundle` and a built `anchor` (read-only, see §4), plus optional
 
 6. **Trusted time** (optional, INFORMATIONAL). If the anchored root carries a
    `timestamp` and a `verifyTimestamp` callback is present, verify the RFC 3161 token:
-   - parse the CMS `SignedData` from `timestamp.token`;
+   - parse the CMS `SignedData` from `timestamp.token`; locate the signer (leaf) cert by
+     the SignerInfo's IssuerAndSerialNumber;
    - assert the TSTInfo `messageImprint.hashedMessage == SHA-256(root)` and the imprint
      hash algorithm is SHA-256;
-   - validate the signer certificate chains to one of the trusted TSA CA certs.
+   - assert the leaf cert carries the Extended Key Usage `id-kp-timeStamping`
+     (`1.3.6.1.5.5.7.3.8`, ext OID `2.5.29.37`) — RFC 3161 §2.3, so only a designated TSA
+     cert can mint accepted timestamps;
+   - assert the token's `genTime` falls within the leaf cert's validity window (and within
+     the issuing CA cert's window for the hop that establishes trust);
+   - verify the SignerInfo signature (RSA-PKCS1-v1.5 / SHA-256 only) under the leaf cert.
+     Two CMS shapes are accepted:
+       - **No signed attributes** — the signature is directly over the TSTInfo DER
+         (the `eContent`). (The local-CA offline-demo token uses this shape.)
+       - **Signed attributes present** (real TSAs, incl. freeTSA) — the signature is over
+         the DER encoding of the `signedAttrs` SET re-tagged with the explicit SET-OF tag
+         `0x31` (CMS/PKCS#7: the signature covers the SET-OF form, not the `[0] IMPLICIT`
+         tag as it appears in the SignerInfo). The signed attributes MUST carry a
+         `message-digest` attribute (`1.2.840.113549.1.9.4`) equal to `SHA-256(TSTInfo DER)`
+         and a `content-type` attribute (`1.2.840.113549.1.9.3`) equal to id-ct-TSTInfo
+         (`1.2.840.113549.1.9.16.1.4`). This preserves the binding chain
+         root → messageImprint → message-digest attr → signed attrs.
+   - validate the signer certificate chains to one of the trusted TSA CA certs (byte-match
+     to the leaf, or the trusted CA's public key verifies the leaf's TBS signature).
    On success `timeTier = tsa-attested`; otherwise `asserted`. A failed time check is
    **informational only** — it never gates `intact`, never sets `failure`, never lowers
    the tamper `claim`. (Trusted time is a *separate assurance dimension* from tamper.)
