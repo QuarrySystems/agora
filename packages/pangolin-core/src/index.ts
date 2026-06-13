@@ -19,3 +19,8 @@ export * from './result-sink.js';
 export * from './verify.js';
 export * from './pipeline.js';
 export * from './s3-clients.js';
+export * from './audit.js';
+export * from './audit-canon.js';
+export * from './audit-merkle.js';
+export * from './audit-verify.js';
+export * from './audit-verify-bundle.js';

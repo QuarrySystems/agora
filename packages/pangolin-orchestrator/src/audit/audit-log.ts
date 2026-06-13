@@ -4,6 +4,8 @@ import type {
   Signer,
   AuditAnchor,
   AnchorReceipt,
+  TimestampAuthority,
+  TimestampToken,
 } from '../contracts/index.js';
 import { canonEntry } from './canon.js';
 import { chainHash, merkleRoot, leavesFromEntryHashes } from './merkle.js';
@@ -16,8 +18,14 @@ export class AuditLog {
       store: AuditStore;
       signer: Signer;
       anchor: AuditAnchor;
+      /** Optional trusted-time authority. When present, sealEpoch obtains an RFC-3161 token
+       *  over the sealed root best-effort — a TSA outage must NEVER abort a seal. */
+      timestamper?: TimestampAuthority;
       /** Called when tryAppend swallows a store failure — surface the drop to the operator. */
       onDrop?: (entry: Omit<AuditEntry, 'seq'>, err: Error) => void;
+      /** Called when a configured timestamper throws during sealEpoch — surfaces the TSA
+       *  outage honestly (the seal still anchors/persists; this is NOT a dropped append). */
+      onTimestampFailure?: (err: Error) => void;
     },
   ) {}
 
@@ -54,8 +62,18 @@ export class AuditLog {
     const hashes = this.deps.store.getAuditEntries(runId).map((e) => e.entryHash);
     const root = merkleRoot(leavesFromEntryHashes(hashes));
     const signature = await this.deps.signer.sign(root);
+    // Trusted-time: best-effort. A TSA outage must NOT abort the seal — and it is NOT a
+    // dropped audit append, so it is surfaced honestly via onTimestampFailure (never onDrop).
+    let timestamp: TimestampToken | undefined;
+    if (this.deps.timestamper) {
+      try {
+        timestamp = await this.deps.timestamper.timestamp(root);
+      } catch (err) {
+        this.deps.onTimestampFailure?.(err as Error);
+      }
+    }
     const receipt = await this.deps.anchor.anchor({ epochId: runId, root, signature });
-    this.deps.store.putAuditRoot({ epochId: runId, root, signature, receipt }); // durable seal marker
+    this.deps.store.putAuditRoot({ epochId: runId, root, signature, receipt, ...(timestamp ? { timestamp } : {}) }); // durable seal marker
     return receipt;
   }
 }
