@@ -32,7 +32,7 @@
 - Modify `src/contracts/audit.ts` — re-export the audit types from core (single source).
 
 **`packages/pangolin-verify/` (NEW minimal package — owns the ASN.1/CMS dep):**
-- `package.json`, `tsconfig.json`, `BUSL-1.1`, `README.md`, `vitest.config.ts`.
+- `package.json`, `tsconfig.json`, `BUSL-1.1`, `README.md` (no `vitest.config.ts` — leaf packages inherit the root's).
 - `src/index.ts` — barrel.
 - `src/timestamp-authority.ts` — `NoTimestampAuthority`, `Rfc3161TimestampAuthority`, `LocalCaTimestampAuthority`, `verifyTimestamp`.
 - `src/verify-context.ts` — load bundle + verify-context, build the offline / anchor-checked anchor.
@@ -81,7 +81,21 @@ If egress is available, request a token from `https://freetsa.org/tsr` over a kn
 
 - [ ] **Step 5: Record the decision and remove the spike**
 
-Write `spike/rfc3161/FINDINGS.md` naming the ratified package + exact versions, the API entry points used for mint/verify, and any gotchas (e.g. accuracy/genTime parsing). Then:
+Write `spike/rfc3161/FINDINGS.md` to this exact template (Task 3 depends on it being complete):
+
+```markdown
+# RFC 3161 / CMS library decision
+## Ratified packages (exact versions)
+- <pkg>: <version>   # e.g. pkijs: 3.2.4
+- <pkg>: <version>   # e.g. asn1js: 3.0.5
+## API entry points (real call chains, copy-pasteable)
+- Mint a token (LocalCaTimestampAuthority): <the exact calls to build CA+TSA cert and sign a TimeStampToken over a messageImprint>
+- Verify a token (verifyTimestamp): <the exact calls to parse the CMS SignedData, read messageImprint.hashedMessage, and validate the signer chains to a trusted cert>
+## Gotchas
+- <genTime/accuracy parsing, DER vs BER, cert-chain validation caveats, etc.>
+```
+
+Then:
 
 ```bash
 git add spike/rfc3161/FINDINGS.md
@@ -147,8 +161,8 @@ export { verify, claimFor } from '@quarry-systems/pangolin-core';
 export { canonEntry } from '@quarry-systems/pangolin-core';
 // merkle.ts
 export { chainHash, merkleRoot, leavesFromEntryHashes } from '@quarry-systems/pangolin-core';
-// verify-bundle.ts
-export { verifyBundle, checkHandoffClosure } from '@quarry-systems/pangolin-core';
+// verify-bundle.ts  (checkHandoffClosure is INTERNAL to the moved file — not exported)
+export { verifyBundle } from '@quarry-systems/pangolin-core';
 ```
 
 `audit-log.ts` and `anchor.ts` keep their logic; their `import type { ... }` lines now resolve through `../contracts/index.js` (which re-exports core) — no change needed if they import types via the contracts barrel.
@@ -326,6 +340,13 @@ export async function verify(
 }
 ```
 
+**Important — the `failure` field is unchanged.** Its enum stays
+`'chain' | 'anchor-missing' | 'root-mismatch' | 'signature' | 'handoff'`. A failed time
+check (`time.ok === false`) is informational only: it does NOT add a `'time'` variant, does
+NOT set `failure`, and does NOT affect `intact`. It only forces `timeTier` to `asserted`.
+Add an assertion to the Step 2 "verifyTimestamp false" test: `expect(r.failure).toBeUndefined()`
+and `expect(r.intact).toBe(true)` (a clean tamper chain stays intact even when the TSA token is bad).
+
 - [ ] **Step 5: Run the test (PASS) + the full core audit suite (no regression)**
 
 Run:
@@ -336,7 +357,20 @@ Expected: PASS, including the existing verify/back-compat tests (which omit `ver
 
 - [ ] **Step 6: Pass `verifyTimestamp` through `verifyBundle`**
 
-In `src/audit-verify-bundle.ts`, thread the optional `verifyTimestamp` from `verifyBundle`'s `deps` into the inner `verify()` call (mirror how `verifySignature` is already threaded). Add a test asserting a bundle with a token + `verifyTimestamp:()=>true` reports `timeTier:'tsa-attested'`.
+In `src/audit-verify-bundle.ts`, widen the `deps` param (additive — old callers keep working since `verifyTimestamp` is optional) and thread it into the inner `verify()` call, exactly as `verifySignature` is already threaded:
+
+```ts
+export function verifyBundle(
+  bundle: AuditBundle,
+  deps: {
+    anchor: AuditAnchor;
+    verifySignature?: (root: Uint8Array, sig: Signature) => boolean;
+    verifyTimestamp?: (root: Uint8Array, token: TimestampToken) => boolean;  // NEW, optional
+  },
+): Promise<VerificationReport>
+```
+
+Add a test asserting a bundle with a token + `verifyTimestamp:()=>true` reports `timeTier:'tsa-attested'`.
 
 - [ ] **Step 7: Wire the optional `timestamper` into `AuditLog.sealEpoch`**
 
@@ -382,35 +416,43 @@ Document, sufficient to reimplement without the code: the `AuditBundle` JSON sha
 
 - [ ] **Step 2: Scaffold the package (follow the leaf-package convention)**
 
-`packages/pangolin-verify/package.json` (model on `pangolin-secret-store/package.json` — confirm exact fields against it):
+`packages/pangolin-verify/package.json` — match `pangolin-secret-store/package.json` field-for-field (verified): `version: "0.2.0"`, empty/absent `devDependencies` (dev tools — vitest `^2.1.9`, typescript `^5.7.2`, eslint — are declared ONLY at the workspace root; do NOT redeclare them), `publishConfig`/`repository`/`homepage`/`bugs` present, `files: ["dist","README.md","LICENSE"]`, `bin` value without a leading `./` (matches `pangolin-cli`'s `"pangolin": "dist/index.js"`):
 
 ```json
 {
   "name": "@quarry-systems/pangolin-verify",
   "version": "0.2.0",
   "license": "BUSL-1.1",
+  "description": "Standalone auditor verifier for Pangolin Scale audit bundles — chain/Merkle/signature/RFC-3161 checks with zero orchestrator dependency.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "bin": { "pangolin-verify": "./dist/cli.js" },
-  "files": ["dist", "README.md", "LICENSE", "BUSL-1.1"],
+  "bin": { "pangolin-verify": "dist/cli.js" },
+  "publishConfig": { "access": "public" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "repository": { "type": "git", "url": "git+https://github.com/QuarrySystems/pangolin.git", "directory": "packages/pangolin-verify" },
+  "homepage": "https://quarrysystems.github.io/pangolin",
+  "bugs": { "url": "https://github.com/QuarrySystems/pangolin/issues" },
   "scripts": {
-    "build": "tsc",
-    "clean": "rm -rf dist",
     "lint": "eslint src --ext .ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "build": "tsc",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@quarry-systems/pangolin-core": "workspace:*",
     "commander": "^12.0.0",
-    "<TSLIB>": "<version from Task 0 FINDINGS.md>"
+    "pkijs": "<exact version from Task 0 FINDINGS.md>",
+    "asn1js": "<exact version from Task 0 FINDINGS.md>"
   },
-  "devDependencies": { "typescript": "^5.5.0", "vitest": "^2.0.0" }
+  "devDependencies": {}
 }
 ```
 
-Copy `tsconfig.json`, `BUSL-1.1`, and a minimal `vitest.config.ts` from `pangolin-secret-store` (matching `extends`/paths). Add a one-paragraph `README.md` stating it is the standalone auditor verifier. **Note:** NO dependency on `@quarry-systems/pangolin-orchestrator`.
+> The `pkijs`/`asn1js` entries are illustrative of the Task-0 candidate; replace the names+versions with whatever FINDINGS.md ratified before `pnpm install` (the angle-bracket text is NOT valid JSON — substitute it).
+
+Copy `tsconfig.json` and `BUSL-1.1` from `pangolin-secret-store` (matching `extends`/paths). Do **NOT** create a `vitest.config.ts` — leaf packages have none; they inherit the root config. Add a one-paragraph `README.md` stating it is the standalone auditor verifier. **Note:** NO dependency on `@quarry-systems/pangolin-orchestrator`.
 
 - [ ] **Step 3: Write the failing timestamp round-trip test**
 
