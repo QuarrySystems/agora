@@ -24,3 +24,7 @@ Thumbs.db
 
 # Local agent / tooling config (personal, not part of the product)
 .claude/
+
+# RFC 3161 spike: dependencies + lockfile are throwaway (ratified versions live in FINDINGS.md)
+spike/rfc3161/node_modules/
+spike/rfc3161/package-lock.json
