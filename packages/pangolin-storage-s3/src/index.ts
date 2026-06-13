@@ -173,6 +173,13 @@ export type { AwsS3MailboxClientOpts } from './aws-s3-mailbox-client.js';
 export { AwsS3LockClient } from './aws-s3-lock-client.js';
 export type { AwsS3LockClientOpts } from './aws-s3-lock-client.js';
 
+// Re-export the S3 SDK primitives a consumer needs to drive a raw client
+// against an S3-compatible endpoint (MinIO/LocalStack). `@aws-sdk/client-s3`
+// is a declared dependency here but is NOT hoisted to the repo root under
+// pnpm's strict layout, so root-level e2e suites import these through this
+// package rather than depending on the SDK directly.
+export { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
+
 export class S3StorageProvider implements StorageProvider {
   readonly name = 's3';
   private readonly s3: S3Client;
