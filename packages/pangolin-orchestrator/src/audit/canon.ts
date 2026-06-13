@@ -1,18 +1,2 @@
-import type { AuditEntry } from '../contracts/index.js';
-
-/** Positional JSON array — Pangolin Scale's pinned field order. NOT JCS. Absent optionals → null.
- * Field order: [kind, runId, itemId, status, actor, manifestRef, resultRef, at, seq]
- */
-export function canonEntry(e: AuditEntry): string {
-  return JSON.stringify([
-    e.kind,
-    e.runId,
-    e.itemId ?? null,
-    e.status ?? null,
-    e.actor ?? null,
-    e.manifestRef ?? null,
-    e.resultRef ?? null,
-    e.at,
-    e.seq,
-  ]);
-}
+// Moved to @quarry-systems/pangolin-core (single source of truth). Re-export shim.
+export { canonEntry } from '@quarry-systems/pangolin-core';
